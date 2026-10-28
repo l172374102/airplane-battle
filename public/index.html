@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b1425">
   <meta name="api-base" content="https://airplane-battle-online.airplane-battle.workers.dev">
   <title>✈️ 空战棋盘</title>
-  <link rel="stylesheet" href="./styles.css?v=20261028-6">
+  <link rel="stylesheet" href="./styles.css?v=20261028-7">
 </head>
 <body>
 <main class="wrap">
@@ -97,6 +97,10 @@
       <div id="onlineOwnBoard"></div>
     </div>
     <div id="onlineResult" class="small"></div>
+    <div class="row hide" id="onlineRematchRow">
+      <button id="onlineRematch">↻ 再来一局</button>
+      <span class="small" id="onlineRematchText"></span>
+    </div>
     <div class="grid2">
       <div><h3>我的攻击记录</h3><div class="history" id="onlineMyHistory"></div></div>
       <div><h3>对方攻击记录</h3><div class="history" id="onlineTheirHistory"></div></div>
@@ -154,6 +158,10 @@
         <div class="small">灰色整机表示机头已被击毁；● 为机身中弹，× 为未击中。</div>
         <div id="localOwnBoard"></div>
       </div>
+      <div class="row hide" id="localRematchRow">
+        <button id="localRematch">↻ 再来一局</button>
+        <span class="small">使用相同模式和设置重新布阵</span>
+      </div>
       <div class="grid2">
         <div><h3 id="localHistoryOneTitle">我的攻击记录</h3><div class="history" id="localHistoryOne"></div></div>
         <div><h3 id="localHistoryTwoTitle">对方攻击记录</h3><div class="history" id="localHistoryTwo"></div></div>
@@ -167,6 +175,6 @@
 
   <p class="message" id="message" role="status" aria-live="polite"></p>
 </main>
-<script type="module" src="./app.js?v=20261028-6"></script>
+<script type="module" src="./app.js?v=20261028-7"></script>
 </body>
 </html>

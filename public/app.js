@@ -223,9 +223,11 @@ function updateTurnCue(id,on,key){
   if(on)document.title='🎯 轮到你攻击 · 空战棋盘';
   else if(!Object.values(cueState).some(Boolean))document.title='✈️ 空战棋盘';
 }
-function onlineGuessKey(){return `airplane-online-guesses-${online.room}-${online.seat}`}
+function onlineGuessKey(round=online.state?.round||1){return `airplane-online-guesses-${online.room}-${online.seat}-${round}`}
 function loadOnlineGuesses(){
-  let saved=[];try{saved=JSON.parse(localStorage.getItem(onlineGuessKey())||'[]')}catch{localStorage.removeItem(onlineGuessKey())}
+  const key=onlineGuessKey(),legacyKey=`airplane-online-guesses-${online.room}-${online.seat}`;
+  let raw=localStorage.getItem(key);if(raw===null&&(online.state?.round||1)===1)raw=localStorage.getItem(legacyKey);
+  let saved=[];try{saved=JSON.parse(raw||'[]')}catch{localStorage.removeItem(key)}
   if(!Array.isArray(saved))return [];
   const valid=[];
   for(const guess of saved){
@@ -270,11 +272,21 @@ async function api(action,data={}){
 }
 function inviteUrl(room){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('room',room);return url.toString()}
 function onlineSession(session){
-  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=loadOnlineGuesses();online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;
+  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=[];online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;
   localStorage.setItem(sessionKey,JSON.stringify({room:online.room,token:online.token,seat:online.seat}));
   const url=new URL(location.href);url.search='';url.searchParams.set('room',online.room);history.replaceState(null,'',url);
   $('home').classList.add('hide');$('onlineGame').classList.remove('hide');$('localGame').classList.add('hide');
   if(timer)clearInterval(timer);refreshOnline();timer=setInterval(refreshOnline,1500);
+}
+function applyOnlineState(next){
+  const first=!online.state,previousRound=online.state?.round||1,nextRound=next.round||1,roundChanged=!first&&previousRound!==nextRound;
+  online.state=next;online.ready=!!next.players[online.seat].ready;
+  if(first||roundChanged)online.guesses=loadOnlineGuesses();
+  if(roundChanged){
+    online.planes=[];online.draftPlane=null;online.draftIndex=-1;online.guessMode=false;online.guessDraftPlane=null;online.guessDraftIndex=-1;
+  }
+  if(online.ready)online.planes=next.myPlanes||[];
+  return roundChanged;
 }
 function onlinePlacementGrid(){
   placementGrid('onlineBoard',online.planes,online,online.state.count,renderOnline);
@@ -283,12 +295,12 @@ function renderOnline(){
   const state=online.state;if(!state)return;
   const players=state.players,playing=state.status==='playing',done=state.status==='done',me=players[online.seat],other=players[1-online.seat];
   if(!playing&&online.guessDraftPlane){online.guessDraftPlane=null;online.guessDraftIndex=-1;online.guessMode=false}
-  $('onlineHeading').textContent=`房间 ${online.room} · ${online.seat===0?'玩家1':'玩家2'}`;$('roomText').textContent=`房间号：${online.room}`;
+  $('onlineHeading').textContent=`房间 ${online.room} · ${online.seat===0?'玩家1':'玩家2'} · 第${state.round||1}局`;$('roomText').textContent=`房间号：${online.room}`;
   $('shareRow').classList.toggle('hide',state.status!=='waiting');$('onlinePlacement').classList.toggle('hide',online.ready||state.status!=='waiting');
   $('onlineReady').disabled=online.planes.length!==state.count||!!online.draftPlane;$('onlineReady').textContent=`完成布阵（${online.planes.length}/${state.count}）`;
   syncPlacementControls('online',online.planes,online,state.count);
   const myTurn=playing&&state.turn===online.seat;
-  const label=done?(state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(myTurn?(online.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击：点击目标坐标'):'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
+  const label=done?(me.rematch&&!other.rematch?'✓ 已确认再来一局，等待对方':state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(myTurn?(online.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击：点击目标坐标'):'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
   $('onlineStatus').textContent=`${label} · 机头击毁 ${me.kills}/${state.count}，对方击毁 ${other.kills}/${state.count}`;
   const myShots=state.shots||[],incoming=state.incoming||[];
   $('onlineAttackHeader').classList.toggle('hide',!playing);
@@ -306,7 +318,7 @@ function renderOnline(){
       paintGuesses(el,n,guessView.visible);const alreadyShot=paintShots(el,n,myShots);if(playing&&online.guessMode&&online.guessDraftPlane)paintDraftPlane(el,n,online.guessDraftPlane,guessView.valid,true);
       if(playing&&online.guessMode){el.onclick=()=>handleGuessCell(online.guesses,online,state.count,n,x,y,renderOnline);return}
       if(alreadyShot){el.disabled=true;return}
-      el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{online.state=await api('shot',{cell:n});renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
+      el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('shot',{cell:n}));renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
     });
     renderPlaneOutlines('onlineBoard',guessView.visible,{guess:true});
     if(playing&&online.guessMode&&online.guessDraftPlane)renderPlaneOutlines('onlineBoard',[online.guessDraftPlane],{guess:true,draft:true,invalid:!guessView.valid,allowInvalid:true});
@@ -320,10 +332,14 @@ function renderOnline(){
   renderHistory('onlineMyHistory',myShots);renderHistory('onlineTheirHistory',incoming);
   $('onlineReveal').classList.toggle('hide',!done);if(done&&state.opponentPlanes){grid('onlineEnemyBoard',(el,n)=>{paintOwnDamage(el,n,state.opponentPlanes,myShots);el.disabled=true});renderPlaneOutlines('onlineEnemyBoard',state.opponentPlanes,{destroyed:destroyedPlaneIds(myShots)})}
   $('onlineResult').textContent=done?'游戏结束：双方完整攻击历史已保留，对方布局已公开。':playing?'橙色=命中机身，红色=击毁机头，灰色=未击中。':'';
+  $('onlineRematchRow').classList.toggle('hide',!done);
+  $('onlineRematch').disabled=!done||online.busy||me.rematch;
+  $('onlineRematch').textContent=me.rematch?'✓ 已确认再来一局':'↻ 再来一局';
+  $('onlineRematchText').textContent=me.rematch&&!other.rematch?'等待对方确认…':!me.rematch&&other.rematch?'对方已确认，点击即可开始下一局':'双方确认后在原房间重新布阵';
 }
 async function refreshOnline(){
   if(!online.token)return;
-  try{const next=await api('state');const changed=JSON.stringify(next)!==JSON.stringify(online.state);online.state=next;online.ready=next.players[online.seat].ready;if(online.ready)online.planes=next.myPlanes||[];if(changed)renderOnline();message('')}
+  try{const next=await api('state');const changed=JSON.stringify(next)!==JSON.stringify(online.state),roundChanged=applyOnlineState(next);if(changed)renderOnline();message(roundChanged?'新一局开始，请重新布阵':'')}
   catch(e){message(`连接中断：${e.message}`)}
 }
 $('create').onclick=async()=>{try{const session=await api('create',{count:Number($('onlineCount').value)});onlineSession(session)}catch(e){message(e.message)}};
@@ -335,7 +351,8 @@ $('onlineRotateRight').onclick=()=>rotateDraftPlane(online,1,renderOnline);
 $('onlineConfirmPlane').onclick=()=>confirmDraftPlane(online.planes,online,renderOnline);
 $('onlineCancelPlane').onclick=()=>cancelDraftPlane(online,renderOnline);
 $('onlineDelete').onclick=()=>deleteEditingPlane(online.planes,online,renderOnline);
-$('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count||online.draftPlane)return;try{online.state=await api('ready',{planes:online.planes});online.ready=true;renderOnline()}catch(e){message(e.message)}};
+$('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count||online.draftPlane)return;try{applyOnlineState(await api('ready',{planes:online.planes}));renderOnline()}catch(e){message(e.message)}};
+$('onlineRematch').onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('rematch'));renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
 $('onlineGuessToggle').onclick=()=>toggleGuessMode(online,renderOnline);
 $('onlineGuessRotateLeft').onclick=()=>rotateGuessDraft(online,-1,renderOnline);
 $('onlineGuessRotateRight').onclick=()=>rotateGuessDraft(online,1,renderOnline);
@@ -355,10 +372,17 @@ function resolveShot(attacker,cell){
   if(killsBy(attacker)===local.count){local.phase='done';local.winner=attacker}else local.turn=1-attacker;
 }
 function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;local.guessDraftPlane=null;local.guessDraftIndex=-1;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
+function createLocalState(mode,count,difficulty,round=1){
+  return {mode,count,difficulty,round,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+}
 function startLocal(){
   const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value),difficulty=mode==='ai'?$('aiDifficulty').value:null;
-  local={mode,count,difficulty,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+  local=createLocalState(mode,count,difficulty);
   $('home').classList.add('hide');$('onlineGame').classList.add('hide');$('localGame').classList.remove('hide');message('');renderLocal();
+}
+function restartLocal(){
+  if(!local||local.phase!=='done')return;
+  local=createLocalState(local.mode,local.count,local.difficulty,(local.round||1)+1);message('新一局开始，请重新布阵');renderLocal();
 }
 function localPlacementGrid(){
   const planes=local.players[local.placingSeat].planes;
@@ -367,12 +391,13 @@ function localPlacementGrid(){
 function renderLocal(){
   if(!local)return;
   const ai=local.mode==='ai',placing=local.phase==='placing',done=local.phase==='done';
-  $('localHeading').textContent=ai?`🤖 人机对战 · ${aiDifficultyLabel(local.difficulty)}`:'👥 同机双人';
+  $('localHeading').textContent=`${ai?`🤖 人机对战 · ${aiDifficultyLabel(local.difficulty)}`:'👥 同机双人'} · 第${local.round||1}局`;
   $('handoff').classList.toggle('hide',!local.awaitingPass);$('localPlayArea').classList.toggle('hide',local.awaitingPass);
   if(local.awaitingPass){updateTurnCue('localStatus',false,'');return}
   $('localPlacement').classList.toggle('hide',!placing);
   $('localAttackHeader').classList.toggle('hide',placing||done);
   $('localOwnPanel').classList.toggle('hide',placing);
+  $('localRematchRow').classList.toggle('hide',!done);
   if(placing){
     updateTurnCue('localStatus',false,'');$('localBoard').classList.remove('guess-active');
     const p=local.players[local.placingSeat].planes;
@@ -439,6 +464,7 @@ $('localConfirmPlane').onclick=()=>confirmDraftPlane(local.players[local.placing
 $('localCancelPlane').onclick=()=>cancelDraftPlane(local,renderLocal);
 $('localDelete').onclick=()=>deleteEditingPlane(local.players[local.placingSeat].planes,local,renderLocal);
 $('localReady').onclick=localReady;
+$('localRematch').onclick=()=>{try{restartLocal()}catch(e){message(e.message)}};
 $('localGuessToggle').onclick=()=>toggleGuessMode(local,renderLocal);
 $('localGuessRotateLeft').onclick=()=>rotateGuessDraft(local,-1,renderLocal);
 $('localGuessRotateRight').onclick=()=>rotateGuessDraft(local,1,renderLocal);

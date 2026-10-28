@@ -47,8 +47,8 @@ export function validPlanes(planes,count){
 export function playerView(state,seat){
   const me=state.players[seat],other=state.players[1-seat];
   return {
-    room:state.room,count:state.count,status:state.status,seat,turn:state.turn,winner:state.winner,
-    players:state.players.map(p=>({joined:!!p.token,ready:p.ready,name:p.name,kills:p.kills})),
+    room:state.room,count:state.count,round:state.round||1,status:state.status,seat,turn:state.turn,winner:state.winner,
+    players:state.players.map(p=>({joined:!!p.token,ready:p.ready,name:p.name,kills:p.kills,rematch:!!p.rematch})),
     myPlanes:me.planes,
     shots:state.shots.filter(shot=>shot.by===seat),
     incoming:state.shots.filter(shot=>shot.by!==seat),
@@ -56,6 +56,16 @@ export function playerView(state,seat){
     opponentPlanes:state.status==='done'?other.planes:undefined,
     updated:state.updated
   };
+}
+export function requestRematch(state,seat){
+  state.players[seat].rematch=true;
+  if(!state.players.every(player=>player.rematch))return false;
+  state.round=(state.round||1)+1;
+  state.status='waiting';state.turn=0;state.winner=null;state.shots=[];
+  for(const player of state.players){
+    player.ready=false;player.planes=[];player.kills=0;player.rematch=false;
+  }
+  return true;
 }
 
 export default {
@@ -102,7 +112,7 @@ export class GameRoom {
     if(action==='init'){
       if(state)return err('房间已存在',409);
       const accessToken=token();
-      state={room:body.room,count:body.count,status:'waiting',turn:0,winner:null,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0},{token:null,name:'玩家2',ready:false,planes:[],kills:0}],shots:[],updated:Date.now()};
+      state={room:body.room,count:body.count,round:1,status:'waiting',turn:0,winner:null,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0,rematch:false},{token:null,name:'玩家2',ready:false,planes:[],kills:0,rematch:false}],shots:[],updated:Date.now()};
       await this.ctx.storage.put('game',state);
       return send({room:state.room,seat:0,token:accessToken},201);
     }
@@ -125,6 +135,12 @@ export class GameRoom {
       if(!validPlanes(body.planes,state.count))return err('飞机布局无效：不能重叠或越界');
       state.players[seat].planes=body.planes;state.players[seat].ready=true;
       if(state.players.every(player=>player.ready))state.status='playing';
+      state.updated=Date.now();await this.ctx.storage.put('game',state);return send(playerView(state,seat));
+    }
+
+    if(action==='rematch'){
+      if(state.status!=='done')return err('只能在本局结束后重新开始');
+      requestRematch(state,seat);
       state.updated=Date.now();await this.ctx.storage.put('game',state);return send(playerView(state,seat));
     }
 

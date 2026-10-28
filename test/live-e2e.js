@@ -21,6 +21,11 @@ assert.ok(created.token.length>60);
 const joined=await post('join',{room:created.room});
 assert.equal(joined.seat,1);
 
+const p1Chat=await post('chat',{room:created.room,token:created.token,text:'准备好了吗？'});
+assert.deepEqual(p1Chat.messages.map(({by,text})=>({by,text})),[{by:0,text:'准备好了吗？'}]);
+const p2Chat=await post('chat',{room:created.room,token:joined.token,text:'开始吧 ✈️'});
+assert.deepEqual(p2Chat.messages.map(({by,text})=>({by,text})),[{by:0,text:'准备好了吗？'},{by:1,text:'开始吧 ✈️'}]);
+
 const p1Ready=await post('ready',{room:created.room,token:created.token,planes:p1Planes});
 assert.equal(p1Ready.status,'waiting');
 assert.equal(p1Ready.opponentPlanes,undefined);
@@ -59,4 +64,4 @@ const denied=await fetch(`${base}/api/create`,{method:'OPTIONS',headers:{origin:
 assert.equal(denied.status,403);
 assert.equal(denied.headers.get('access-control-allow-origin'),null);
 
-console.log(JSON.stringify({ok:true,room:created.room,shots:finished.allShots.length,winner:finished.winner,secrecy:'verified',cors:'verified'}));
+console.log(JSON.stringify({ok:true,room:created.room,shots:finished.allShots.length,winner:finished.winner,chat:'verified',secrecy:'verified',cors:'verified'}));

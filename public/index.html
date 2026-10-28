@@ -53,6 +53,15 @@
     <div class="title-row"><h2 id="onlineHeading"></h2><button class="ghost" id="onlineHome">返回首页</button></div>
     <div class="notice" id="onlineStatus" role="status" aria-live="polite"></div>
     <div class="row" id="shareRow"><button id="share">分享邀请链接</button><strong id="roomText"></strong></div>
+    <section class="chat-panel" aria-labelledby="onlineChatTitle">
+      <div class="chat-title"><h3 id="onlineChatTitle">💬 房间聊天</h3><span class="small">同一房间内实时同步</span></div>
+      <div class="chat-log" id="onlineChatLog" role="log" aria-live="polite" aria-relevant="additions text"></div>
+      <div class="chat-compose">
+        <input id="onlineChatInput" aria-label="聊天消息" autocomplete="off" maxlength="120" placeholder="输入消息…">
+        <button id="onlineChatSend">发送</button>
+      </div>
+      <div class="small" id="onlineChatHint">聊天记录会在同一房间的后续局中保留。</div>
+    </section>
     <div id="onlinePlacement" class="hide">
       <div class="row">
         <button class="secondary" id="onlineRandom">随机布阵</button>
@@ -175,6 +184,6 @@
 
   <p class="message" id="message" role="status" aria-live="polite"></p>
 </main>
-<script type="module" src="./app.js?v=20261028-9"></script>
+<script type="module" src="./app.js?v=20261028-10"></script>
 </body>
 </html>

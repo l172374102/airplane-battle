@@ -6,7 +6,7 @@ const apiBase=(document.querySelector('meta[name="api-base"]')?.content||'').rep
 const sessionKey='airplane-online-session-v2';
 let activeMode='online';
 let timer=null;
-let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,guesses:[],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,chatBusy:false,guesses:[],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
 let local=null;
 const cueState={};
 
@@ -240,6 +240,26 @@ function saveOnlineGuesses(){localStorage.setItem(onlineGuessKey(),JSON.stringif
 function renderHistory(target,shots,empty='暂无记录'){
   $(target).innerHTML=shots.map((shot,index)=>`<div>第${index+1}轮 · ${coord(shot.cell)} · ${{miss:'未击中',hit:'命中',kill:'击毁'}[shot.result]}</div>`).join('')||`<div>${empty}</div>`;
 }
+function syncOnlineChatSend(){
+  $('onlineChatSend').disabled=online.chatBusy||!$('onlineChatInput').value.trim();
+}
+function renderOnlineChat(state){
+  const root=$('onlineChatLog'),messages=state.messages||[],latest=messages[messages.length-1],lastId=Number(root.dataset.lastId||0);
+  const nearBottom=root.scrollHeight-root.scrollTop-root.clientHeight<36,shouldScroll=!lastId||nearBottom||(latest?.id!==lastId&&latest?.by===online.seat);
+  root.innerHTML='';
+  if(!messages.length){const empty=document.createElement('div');empty.className='chat-empty';empty.textContent='还没有消息，打个招呼吧';root.appendChild(empty)}
+  else for(const chat of messages){
+    const item=document.createElement('div');item.className=`chat-message ${chat.by===online.seat?'mine':'theirs'}`;
+    const meta=document.createElement('div');meta.className='chat-meta';
+    const time=Number.isFinite(chat.at)?new Date(chat.at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):'';
+    meta.textContent=`${chat.by===online.seat?'我':`玩家${chat.by+1}`} ${time}`.trim();
+    const bubble=document.createElement('div');bubble.className='chat-bubble';bubble.textContent=chat.text;
+    item.append(meta,bubble);root.appendChild(item);
+  }
+  root.dataset.lastId=String(latest?.id||0);if(shouldScroll)requestAnimationFrame(()=>{root.scrollTop=root.scrollHeight});
+  $('onlineChatHint').textContent=state.players[1-online.seat].joined?'聊天记录会在同一房间的后续局中保留。':'等待对方加入时也可以先留言。';
+  syncOnlineChatSend();
+}
 function showHome(){
   $('home').classList.remove('hide');$('onlineGame').classList.add('hide');$('localGame').classList.add('hide');message('');
   updateTurnCue('onlineStatus',false,'');updateTurnCue('localStatus',false,'');
@@ -272,7 +292,8 @@ async function api(action,data={}){
 }
 function inviteUrl(room){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('room',room);return url.toString()}
 function onlineSession(session){
-  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=[];online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;
+  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.chatBusy=false;online.guessMode=false;online.guesses=[];online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;
+  $('onlineChatInput').value='';$('onlineChatLog').dataset.lastId='0';
   localStorage.setItem(sessionKey,JSON.stringify({room:online.room,token:online.token,seat:online.seat}));
   const url=new URL(location.href);url.search='';url.searchParams.set('room',online.room);history.replaceState(null,'',url);
   $('home').classList.add('hide');$('onlineGame').classList.remove('hide');$('localGame').classList.add('hide');
@@ -302,6 +323,7 @@ function renderOnline(){
   const myTurn=playing&&state.turn===online.seat;
   const label=done?(me.rematch&&!other.rematch?'✓ 已确认再来一局，等待对方':state.winner==='draw'?'🤝 本局平局！':state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(state.finalChance?(myTurn?'⚡ 最后一击：完成全部击毁即可追平':'⏳ 后手玩家正在进行最后一击'):myTurn?(online.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击：点击目标坐标'):'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
   $('onlineStatus').textContent=`${label} · 机头击毁 ${me.kills}/${state.count}，对方击毁 ${other.kills}/${state.count}`;
+  renderOnlineChat(state);
   const myShots=state.shots||[],incoming=state.incoming||[];
   $('onlineAttackHeader').classList.toggle('hide',!playing);
   $('onlineOwnPanel').classList.toggle('hide',!(playing||done));
@@ -310,7 +332,7 @@ function renderOnline(){
   $('onlineGuessToggle').textContent=`✏️ 推测标记：${online.guessMode?'开':'关'}`;
   syncGuessControls('onlineGuess',online.guesses,online,state.count,playing&&online.guessMode);
   $('onlineBoard').classList.toggle('guess-active',playing&&online.guessMode);
-  updateTurnCue('onlineStatus',myTurn,`${online.room}:${state.updated}`);
+  updateTurnCue('onlineStatus',myTurn,`${online.room}:${state.round||1}:${state.turn}:${state.shots.length}:${state.finalChance?'final':'normal'}`);
   if(state.status==='waiting'&&!online.ready)onlinePlacementGrid();
   else if(playing||done){
     const guessView=guessDraftView(online.guesses,online);
@@ -353,6 +375,14 @@ $('onlineCancelPlane').onclick=()=>cancelDraftPlane(online,renderOnline);
 $('onlineDelete').onclick=()=>deleteEditingPlane(online.planes,online,renderOnline);
 $('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count||online.draftPlane)return;try{applyOnlineState(await api('ready',{planes:online.planes}));renderOnline()}catch(e){message(e.message)}};
 $('onlineRematch').onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('rematch'));renderOnline()}catch(e){message(e.message)}finally{online.busy=false;renderOnline()}};
+async function sendOnlineChat(){
+  const input=$('onlineChatInput'),text=input.value.trim();if(!text||online.chatBusy)return;
+  online.chatBusy=true;syncOnlineChatSend();
+  try{applyOnlineState(await api('chat',{text}));input.value='';renderOnline()}catch(e){message(e.message)}finally{online.chatBusy=false;syncOnlineChatSend()}
+}
+$('onlineChatInput').oninput=syncOnlineChatSend;
+$('onlineChatInput').onkeydown=event=>{if(event.key==='Enter'&&!event.isComposing){event.preventDefault();sendOnlineChat()}};
+$('onlineChatSend').onclick=sendOnlineChat;
 $('onlineGuessToggle').onclick=()=>toggleGuessMode(online,renderOnline);
 $('onlineGuessRotateLeft').onclick=()=>rotateGuessDraft(online,-1,renderOnline);
 $('onlineGuessRotateRight').onclick=()=>rotateGuessDraft(online,1,renderOnline);

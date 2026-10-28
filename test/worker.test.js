@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shape,validPlanes,playerView,requestRematch,settleAfterShot} from '../src/worker.js';
+import {shape,validPlanes,playerView,requestRematch,settleAfterShot,normalizeChatText,appendChatMessage} from '../src/worker.js';
 
 test('plane shape has ten unique cells and preserves the head',()=>{
   const result=shape([4,4],'U');
@@ -34,7 +34,7 @@ test('player view never exposes opponent layout before game end',()=>{
 });
 
 test('both players can start the next round in the same room',()=>{
-  const state={room:'123456',count:3,round:1,status:'done',turn:0,winner:0,finalChance:true,updated:1,shots:[{by:0,cell:22,result:'kill'}],players:[
+  const state={room:'123456',count:3,round:1,status:'done',turn:0,winner:0,finalChance:true,updated:1,shots:[{by:0,cell:22,result:'kill'}],messages:[{id:1,by:0,text:'再来一局',at:1}],players:[
     {token:'a',name:'玩家1',ready:true,planes:[{x:2,y:4,dir:'R'}],kills:3,rematch:false},
     {token:'b',name:'玩家2',ready:true,planes:[{x:7,y:5,dir:'L'}],kills:1,rematch:false}
   ]};
@@ -48,6 +48,7 @@ test('both players can start the next round in the same room',()=>{
   assert.equal(state.finalChance,false);
   assert.equal(state.turn,0);
   assert.deepEqual(state.shots,[]);
+  assert.deepEqual(state.messages,[{id:1,by:0,text:'再来一局',at:1}]);
   assert.deepEqual(state.players.map(({token})=>token),['a','b']);
   for(const player of state.players){
     assert.equal(player.ready,false);
@@ -85,4 +86,22 @@ test('second player wins normally when finishing before a final-chance state',()
   settleAfterShot(state,1);
   assert.equal(state.status,'done');
   assert.equal(state.winner,1);
+});
+
+test('chat messages are normalized and invalid lengths are rejected',()=>{
+  assert.equal(normalizeChatText('  准备好了吗？  '),'准备好了吗？');
+  assert.equal(normalizeChatText('两行\n消息'),'两行 消息');
+  assert.equal(normalizeChatText('   '),null);
+  assert.equal(normalizeChatText('a'.repeat(121)),null);
+  assert.equal(normalizeChatText(null),null);
+});
+
+test('chat history keeps safe text fields and only the newest 100 messages',()=>{
+  const state={messages:[],nextMessageId:0};
+  for(let i=1;i<=105;i++)appendChatMessage(state,i%2,`消息 ${i}`,1000+i);
+  assert.equal(state.messages.length,100);
+  assert.equal(state.messages[0].id,6);
+  assert.deepEqual(state.messages[99],{id:105,by:1,text:'消息 105',at:1105});
+  const literal=appendChatMessage(state,0,'<img src=x onerror=alert(1)>',2000);
+  assert.equal(literal.text,'<img src=x onerror=alert(1)>');
 });

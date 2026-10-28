@@ -52,6 +52,7 @@ export function playerView(state,seat){
     myPlanes:me.planes,
     shots:state.shots.filter(shot=>shot.by===seat),
     incoming:state.shots.filter(shot=>shot.by!==seat),
+    messages:(state.messages||[]).map(({id,by,text,at})=>({id,by,text,at})),
     allShots:state.status==='done'?state.shots:undefined,
     opponentPlanes:state.status==='done'?other.planes:undefined,
     updated:state.updated
@@ -75,6 +76,18 @@ export function settleAfterShot(state,seat){
   if(state.players[seat].kills!==state.count){state.turn=1-seat;return}
   if(seat===0){state.finalChance=true;state.turn=1;return}
   state.status='done';state.winner=1;
+}
+export function normalizeChatText(value){
+  if(typeof value!=='string')return null;
+  const text=value.replace(/\s+/g,' ').trim();
+  return text&&Array.from(text).length<=120?text:null;
+}
+export function appendChatMessage(state,seat,value,now=Date.now()){
+  const text=normalizeChatText(value);if(!text)return null;
+  if(!Array.isArray(state.messages))state.messages=[];
+  const message={id:(state.nextMessageId||0)+1,by:seat,text,at:now};state.nextMessageId=message.id;
+  state.messages.push(message);if(state.messages.length>100)state.messages=state.messages.slice(-100);
+  return message;
 }
 
 export default {
@@ -121,7 +134,7 @@ export class GameRoom {
     if(action==='init'){
       if(state)return err('房间已存在',409);
       const accessToken=token();
-      state={room:body.room,count:body.count,round:1,status:'waiting',turn:0,winner:null,finalChance:false,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0,rematch:false},{token:null,name:'玩家2',ready:false,planes:[],kills:0,rematch:false}],shots:[],updated:Date.now()};
+      state={room:body.room,count:body.count,round:1,status:'waiting',turn:0,winner:null,finalChance:false,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0,rematch:false},{token:null,name:'玩家2',ready:false,planes:[],kills:0,rematch:false}],shots:[],messages:[],nextMessageId:0,updated:Date.now()};
       await this.ctx.storage.put('game',state);
       return send({room:state.room,seat:0,token:accessToken},201);
     }
@@ -151,6 +164,15 @@ export class GameRoom {
       if(state.status!=='done')return err('只能在本局结束后重新开始');
       requestRematch(state,seat);
       state.updated=Date.now();await this.ctx.storage.put('game',state);return send(playerView(state,seat));
+    }
+
+    if(action==='chat'){
+      const now=Date.now(),text=normalizeChatText(body.text);
+      if(!text)return err('消息需要包含1至120个字符');
+      const previous=[...(state.messages||[])].reverse().find(message=>message.by===seat);
+      if(previous&&now-previous.at<500)return err('发送太快，请稍后再试',429);
+      appendChatMessage(state,seat,text,now);state.updated=now;
+      await this.ctx.storage.put('game',state);return send(playerView(state,seat));
     }
 
     if(action==='shot'){

@@ -236,7 +236,7 @@ function loadOnlineGuesses(){
 }
 function saveOnlineGuesses(){localStorage.setItem(onlineGuessKey(),JSON.stringify(online.guesses))}
 function renderHistory(target,shots,empty='暂无记录'){
-  $(target).innerHTML=shots.map(s=>`<div>第${s.n}次 · ${coord(s.cell)} · ${{miss:'未击中',hit:'命中',kill:'击毁'}[s.result]}</div>`).join('')||`<div>${empty}</div>`;
+  $(target).innerHTML=shots.map((shot,index)=>`<div>第${index+1}轮 · ${coord(shot.cell)} · ${{miss:'未击中',hit:'命中',kill:'击毁'}[shot.result]}</div>`).join('')||`<div>${empty}</div>`;
 }
 function showHome(){
   $('home').classList.remove('hide');$('onlineGame').classList.add('hide');$('localGame').classList.add('hide');message('');

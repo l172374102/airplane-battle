@@ -4,8 +4,9 @@ const apiBase=(document.querySelector('meta[name="api-base"]')?.content||'').rep
 const sessionKey='airplane-online-session-v2';
 let activeMode='online';
 let timer=null;
-let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false};
+let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,guesses:[],guessMode:false};
 let local=null;
+const cueState={};
 
 function message(text=''){$('message').textContent=text}
 function coord(n){return letters[n%10]+(Math.floor(n/10)+1)}
@@ -52,11 +53,56 @@ function paintShots(el,n,shots){
   const shot=shots.find(s=>s.cell===n);if(!shot)return false;
   el.classList.add(shot.result);el.textContent=shot.result==='miss'?'×':shot.result==='hit'?'●':'✕';return true;
 }
+function paintGuesses(el,n,guesses){
+  for(const guess of guesses){const s=shape(guess);if(!s)continue;if(s.head===n){el.classList.add('guess-head');return}if(s.cells.includes(n)){el.classList.add('guess-body');return}}
+}
+function paintOwnDamage(el,n,planes,incoming){
+  const destroyed=new Set(incoming.filter(s=>s.result==='kill'&&Number.isInteger(s.planeId)).map(s=>s.planeId));
+  let planeIndex=-1,planeShape=null;
+  for(let i=0;i<planes.length;i++){const s=shape(planes[i]);if(s?.cells.includes(n)){planeIndex=i;planeShape=s;break}}
+  if(planeIndex>=0){
+    if(destroyed.has(planeIndex)){el.classList.add('destroyed');if(planeShape.head===n)el.textContent='✕'}
+    else if(planeShape.head===n){el.classList.add('head');el.textContent='▲'}
+    else el.classList.add('body');
+  }
+  const shot=incoming.find(s=>s.cell===n);if(!shot)return;
+  if(shot.result==='miss'){el.classList.add('miss');el.textContent='×'}
+  else if(destroyed.has(planeIndex)){el.classList.add('destroyed');el.textContent=shot.result==='kill'?'✕':'●'}
+  else{el.classList.add(shot.result);el.textContent=shot.result==='kill'?'✕':'●'}
+}
+function editGuess(guesses,cell,x,y,dir,max){
+  const existing=guesses.findIndex(guess=>shape(guess)?.cells.includes(cell));
+  if(existing>=0){guesses.splice(existing,1);return true}
+  if(guesses.length>=max){message(`最多标记 ${max} 架推测飞机`);return false}
+  const candidate={x,y,dir};
+  if(!validPlane(candidate,guesses)){message('推测飞机越界或与已有推测重叠');return false}
+  guesses.push(candidate);message('');return true;
+}
+function updateTurnCue(id,on,key){
+  const el=$(id);el.classList.toggle('your-turn',on);
+  if(on&&cueState[id]!==key){cueState[id]=key;if(document.visibilityState==='visible'&&navigator.vibrate)navigator.vibrate([120,60,120])}
+  if(!on)cueState[id]=null;
+  if(on)document.title='🎯 轮到你攻击 · 空战棋盘';
+  else if(!Object.values(cueState).some(Boolean))document.title='✈️ 空战棋盘';
+}
+function onlineGuessKey(){return `airplane-online-guesses-${online.room}-${online.seat}`}
+function loadOnlineGuesses(){
+  let saved=[];try{saved=JSON.parse(localStorage.getItem(onlineGuessKey())||'[]')}catch{localStorage.removeItem(onlineGuessKey())}
+  if(!Array.isArray(saved))return [];
+  const valid=[];
+  for(const guess of saved){
+    if(valid.length>=4)break;
+    if(guess&&Number.isInteger(guess.x)&&Number.isInteger(guess.y)&&['U','R','D','L'].includes(guess.dir)&&validPlane(guess,valid))valid.push(guess);
+  }
+  return valid;
+}
+function saveOnlineGuesses(){localStorage.setItem(onlineGuessKey(),JSON.stringify(online.guesses))}
 function renderHistory(target,shots,empty='暂无记录'){
   $(target).innerHTML=shots.map(s=>`<div>第${s.n}次 · ${coord(s.cell)} · ${{miss:'未击中',hit:'命中',kill:'击毁'}[s.result]}</div>`).join('')||`<div>${empty}</div>`;
 }
 function showHome(){
   $('home').classList.remove('hide');$('onlineGame').classList.add('hide');$('localGame').classList.add('hide');message('');
+  updateTurnCue('onlineStatus',false,'');updateTurnCue('localStatus',false,'');
   if(timer){clearInterval(timer);timer=null}
 }
 
@@ -79,7 +125,7 @@ async function api(action,data={}){
 }
 function inviteUrl(room){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('room',room);return url.toString()}
 function onlineSession(session){
-  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;
+  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=loadOnlineGuesses();
   localStorage.setItem(sessionKey,JSON.stringify({room:online.room,token:online.token,seat:online.seat}));
   const url=new URL(location.href);url.search='';url.searchParams.set('room',online.room);history.replaceState(null,'',url);
   $('home').classList.add('hide');$('onlineGame').classList.remove('hide');$('localGame').classList.add('hide');
@@ -94,14 +140,29 @@ function renderOnline(){
   $('onlineHeading').textContent=`房间 ${online.room} · ${online.seat===0?'玩家1':'玩家2'}`;$('roomText').textContent=`房间号：${online.room}`;
   $('shareRow').classList.toggle('hide',state.status!=='waiting');$('onlinePlacement').classList.toggle('hide',online.ready||state.status!=='waiting');
   $('onlineReady').disabled=online.planes.length!==state.count;$('onlineReady').textContent=`完成布阵（${online.planes.length}/${state.count}）`;
-  const label=done?(state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(state.turn===online.seat?'🎯 轮到你攻击：点击目标坐标':'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
+  const myTurn=playing&&state.turn===online.seat;
+  const label=done?(state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(myTurn?(online.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击：点击目标坐标'):'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
   $('onlineStatus').textContent=`${label} · 机头击毁 ${me.kills}/${state.count}，对方击毁 ${other.kills}/${state.count}`;
   const myShots=state.shots||[],incoming=state.incoming||[];
+  $('onlineAttackHeader').classList.toggle('hide',!playing);
+  $('onlineOwnPanel').classList.toggle('hide',!(playing||done));
+  $('onlineGuessToggle').classList.toggle('active',online.guessMode);
+  $('onlineGuessToggle').setAttribute('aria-pressed',String(online.guessMode));
+  $('onlineGuessToggle').textContent=`✏️ 推测标记：${online.guessMode?'开':'关'}`;
+  $('onlineGuessUndo').disabled=online.guesses.length===0;$('onlineGuessClear').disabled=online.guesses.length===0;
+  $('onlineBoard').classList.toggle('guess-active',playing&&online.guessMode);
+  updateTurnCue('onlineStatus',myTurn,`${online.room}:${state.updated}`);
   if(state.status==='waiting'&&!online.ready)onlinePlacementGrid();
-  else if(playing||done)grid('onlineBoard',(el,n)=>{if(paintShots(el,n,myShots)){el.disabled=true;return}el.disabled=done||state.turn!==online.seat;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{online.state=await api('shot',{cell:n});renderOnline()}catch(e){message(e.message)}finally{online.busy=false}}});
+  else if(playing||done)grid('onlineBoard',(el,n,x,y)=>{
+    paintGuesses(el,n,online.guesses);const alreadyShot=paintShots(el,n,myShots);
+    if(playing&&online.guessMode){el.onclick=()=>{if(editGuess(online.guesses,n,x,y,$('onlineGuessDir').value,state.count)){saveOnlineGuesses();renderOnline()}};return}
+    if(alreadyShot){el.disabled=true;return}
+    el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{online.state=await api('shot',{cell:n});renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
+  });
   else grid('onlineBoard',(el,n)=>{paintPlanes(el,n,online.planes);el.disabled=true});
+  if(playing||done)grid('onlineOwnBoard',(el,n)=>{paintOwnDamage(el,n,online.planes,incoming);el.disabled=true});
   renderHistory('onlineMyHistory',myShots);renderHistory('onlineTheirHistory',incoming);
-  $('onlineReveal').classList.toggle('hide',!done);if(done&&state.opponentPlanes)grid('onlineEnemyBoard',(el,n)=>{paintPlanes(el,n,state.opponentPlanes);paintShots(el,n,myShots);el.disabled=true});
+  $('onlineReveal').classList.toggle('hide',!done);if(done&&state.opponentPlanes)grid('onlineEnemyBoard',(el,n)=>{paintOwnDamage(el,n,state.opponentPlanes,myShots);el.disabled=true});
   $('onlineResult').textContent=done?'游戏结束：双方完整攻击历史已保留，对方布局已公开。':playing?'橙色=命中机身，红色=击毁机头，灰色=未击中。':'';
 }
 async function refreshOnline(){
@@ -114,6 +175,9 @@ $('join').onclick=async()=>{try{online.room=$('roomInput').value.trim();const se
 $('onlineUndo').onclick=()=>{online.planes.pop();renderOnline()};
 $('onlineRandom').onclick=()=>{try{online.planes=randomPlanes(online.state.count);renderOnline()}catch(e){message(e.message)}};
 $('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count)return;try{online.state=await api('ready',{planes:online.planes});online.ready=true;renderOnline()}catch(e){message(e.message)}};
+$('onlineGuessToggle').onclick=()=>{online.guessMode=!online.guessMode;renderOnline()};
+$('onlineGuessUndo').onclick=()=>{online.guesses.pop();saveOnlineGuesses();renderOnline()};
+$('onlineGuessClear').onclick=()=>{online.guesses=[];saveOnlineGuesses();renderOnline()};
 $('share').onclick=async()=>{const url=inviteUrl(online.room);try{if(navigator.share)await navigator.share({title:'加入空战棋盘',text:`房间号：${online.room}`,url});else{await navigator.clipboard.writeText(url);message('邀请链接已复制，发给对方即可')}}catch(e){if(e.name!=='AbortError')prompt('复制邀请链接',url)}};
 $('onlineHome').onclick=showHome;
 
@@ -124,10 +188,10 @@ function resolveShot(attacker,cell){
   local.shots.push({by:attacker,cell,result,planeId:result==='kill'?planeId:undefined,n:local.shots.length+1});
   if(killsBy(attacker)===local.count){local.phase='done';local.winner=attacker}else local.turn=1-attacker;
 }
-function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
+function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
 function startLocal(){
   const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value);
-  local={mode,count,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false};
+  local={mode,count,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false};
   $('home').classList.add('hide');$('onlineGame').classList.add('hide');$('localGame').classList.remove('hide');message('');renderLocal();
 }
 function localPlacementGrid(){
@@ -139,18 +203,33 @@ function renderLocal(){
   const ai=local.mode==='ai',placing=local.phase==='placing',done=local.phase==='done';
   $('localHeading').textContent=ai?'🤖 人机对战':'👥 同机双人';
   $('handoff').classList.toggle('hide',!local.awaitingPass);$('localPlayArea').classList.toggle('hide',local.awaitingPass);
-  if(local.awaitingPass)return;
+  if(local.awaitingPass){updateTurnCue('localStatus',false,'');return}
   $('localPlacement').classList.toggle('hide',!placing);
+  $('localAttackHeader').classList.toggle('hide',placing||done);
+  $('localOwnPanel').classList.toggle('hide',placing);
   if(placing){
+    updateTurnCue('localStatus',false,'');$('localBoard').classList.remove('guess-active');
     const p=local.players[local.placingSeat].planes;
     $('localReady').disabled=p.length!==local.count;$('localReady').textContent=`完成布阵（${p.length}/${local.count}）`;
     $('localStatus').textContent=`${ai?'你':`玩家${local.placingSeat+1}`}正在秘密布阵`;
     localPlacementGrid();
   }else{
-    const current=local.turn,shotOwner=done||ai?0:current,outgoing=local.shots.filter(s=>s.by===shotOwner);
-    const label=done?(local.winner===0?(ai?'🏆 你赢了！':'🏆 玩家1获胜！'):(ai?'电脑获胜':'🏆 玩家2获胜')):(ai?(local.busy?'⏳ 电脑正在攻击':'🎯 轮到你攻击'):`🎯 玩家${current+1}攻击`);
+    const current=local.turn,viewer=ai?0:current,outgoing=local.shots.filter(s=>s.by===viewer),incoming=local.shots.filter(s=>s.by!==viewer),guesses=local.guesses[viewer];
+    const humanTurn=!done&&!local.busy;
+    const label=done?(local.winner===0?(ai?'🏆 你赢了！':'🏆 玩家1获胜！'):(ai?'电脑获胜':'🏆 玩家2获胜')):(ai?(local.busy?'⏳ 电脑正在攻击':local.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击'):(local.guessMode?`✏️ 玩家${current+1}正在标记推测`:`🎯 玩家${current+1}攻击`));
     $('localStatus').textContent=`${label} · 玩家1击毁 ${killsBy(0)}/${local.count}，${ai?'电脑':'玩家2'}击毁 ${killsBy(1)}/${local.count}`;
-    grid('localBoard',(el,n)=>{if(paintShots(el,n,outgoing)){el.disabled=true;return}el.disabled=done||local.busy;el.onclick=()=>localAttack(n)});
+    $('localGuessToggle').classList.toggle('active',local.guessMode);$('localGuessToggle').textContent=`✏️ 推测标记：${local.guessMode?'开':'关'}`;
+    $('localGuessToggle').setAttribute('aria-pressed',String(local.guessMode));
+    $('localGuessUndo').disabled=guesses.length===0;$('localGuessClear').disabled=guesses.length===0;
+    $('localBoard').classList.toggle('guess-active',local.guessMode&&!done);
+    updateTurnCue('localStatus',humanTurn,`${viewer}:${local.shots.length}`);
+    grid('localBoard',(el,n,x,y)=>{
+      paintGuesses(el,n,guesses);const alreadyShot=paintShots(el,n,outgoing);
+      if(!done&&local.guessMode){el.onclick=()=>{if(editGuess(guesses,n,x,y,$('localGuessDir').value,local.count))renderLocal()};return}
+      if(alreadyShot){el.disabled=true;return}
+      el.disabled=done||local.busy;el.onclick=()=>localAttack(n);
+    });
+    grid('localOwnBoard',(el,n)=>{paintOwnDamage(el,n,local.players[viewer].planes,incoming);el.disabled=true});
   }
   const one=local.shots.filter(s=>s.by===0),two=local.shots.filter(s=>s.by===1);
   $('localHistoryOneTitle').textContent='玩家1攻击记录';$('localHistoryTwoTitle').textContent=`${ai?'电脑':'玩家2'}攻击记录`;
@@ -158,8 +237,8 @@ function renderLocal(){
   $('localReveal').classList.toggle('hide',!done);
   if(done){
     $('revealTitle0').textContent='玩家1布局';$('revealTitle1').textContent=`${ai?'电脑':'玩家2'}布局`;
-    grid('localReveal0',(el,n)=>{paintPlanes(el,n,local.players[0].planes);paintShots(el,n,two);el.disabled=true});
-    grid('localReveal1',(el,n)=>{paintPlanes(el,n,local.players[1].planes);paintShots(el,n,one);el.disabled=true});
+    grid('localReveal0',(el,n)=>{paintOwnDamage(el,n,local.players[0].planes,two);el.disabled=true});
+    grid('localReveal1',(el,n)=>{paintOwnDamage(el,n,local.players[1].planes,one);el.disabled=true});
   }
 }
 function localReady(){
@@ -169,7 +248,7 @@ function localReady(){
   if(local.mode==='same')beginHandoff('请交给玩家1','双方布阵完成。玩家1拿到手机后点击继续并开始攻击。',renderLocal);else renderLocal();
 }
 function localAttack(cell){
-  if(local.phase!=='playing'||local.busy)return;
+  if(local.phase!=='playing'||local.busy||local.guessMode)return;
   const already=local.shots.some(s=>s.by===local.turn&&s.cell===cell);if(already)return;
   const attacker=local.turn;resolveShot(attacker,cell);
   if(local.phase==='done'){renderLocal();return}
@@ -181,6 +260,9 @@ $('startLocal').onclick=()=>{try{startLocal()}catch(e){message(e.message)}};
 $('localUndo').onclick=()=>{local.players[local.placingSeat].planes.pop();renderLocal()};
 $('localRandom').onclick=()=>{try{local.players[local.placingSeat].planes=randomPlanes(local.count);renderLocal()}catch(e){message(e.message)}};
 $('localReady').onclick=localReady;
+$('localGuessToggle').onclick=()=>{local.guessMode=!local.guessMode;renderLocal()};
+$('localGuessUndo').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;local.guesses[viewer].pop();renderLocal()};
+$('localGuessClear').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;local.guesses[viewer]=[];renderLocal()};
 $('handoffContinue').onclick=()=>{const next=local.handoffNext;local.awaitingPass=false;local.handoffNext=null;if(next)next();else renderLocal()};
 $('localHome').onclick=showHome;
 

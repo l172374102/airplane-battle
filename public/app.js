@@ -10,6 +10,7 @@ const cueState={};
 
 function message(text=''){$('message').textContent=text}
 function coord(n){return letters[n%10]+(Math.floor(n/10)+1)}
+function headSymbol(p){return {U:'▼',R:'◀',D:'▲',L:'▶'}[p.dir]||'▲'}
 function shape(p){
   let dx=0,dy=0;
   if(p.dir==='U')dy=-1;if(p.dir==='D')dy=1;if(p.dir==='L')dx=-1;if(p.dir==='R')dx=1;
@@ -101,7 +102,7 @@ function renderPlaneOutlines(target,planes,{selected=-1,destroyed=new Set(),gues
 }
 window.addEventListener('resize',()=>requestAnimationFrame(()=>document.querySelectorAll('.plane-overlay').forEach(positionPlaneOverlay)));
 function paintPlanes(el,n,planes){
-  for(const p of planes){const s=shape(p);if(!s)continue;if(s.head===n){el.classList.add('head');el.textContent='▲';return}if(s.cells.includes(n)){el.classList.add('body');return}}
+  for(const p of planes){const s=shape(p);if(!s)continue;if(s.head===n){el.classList.add('head');el.textContent=headSymbol(p);return}if(s.cells.includes(n)){el.classList.add('body');return}}
 }
 function paintShots(el,n,shots){
   const shot=shots.find(s=>s.cell===n);if(!shot)return false;
@@ -116,7 +117,7 @@ function paintOwnDamage(el,n,planes,incoming){
   for(let i=0;i<planes.length;i++){const s=shape(planes[i]);if(s?.cells.includes(n)){planeIndex=i;planeShape=s;break}}
   if(planeIndex>=0){
     if(destroyed.has(planeIndex)){el.classList.add('destroyed');if(planeShape.head===n)el.textContent='✕'}
-    else if(planeShape.head===n){el.classList.add('head');el.textContent='▲'}
+    else if(planeShape.head===n){el.classList.add('head');el.textContent=headSymbol(planes[planeIndex])}
     else el.classList.add('body');
   }
   const shot=incoming.find(s=>s.cell===n);if(!shot)return;

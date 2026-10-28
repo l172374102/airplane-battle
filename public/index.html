@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b1425">
   <meta name="api-base" content="https://airplane-battle-online.airplane-battle.workers.dev">
   <title>✈️ 空战棋盘</title>
-  <link rel="stylesheet" href="./styles.css?v=20261028-3">
+  <link rel="stylesheet" href="./styles.css?v=20261028-4">
 </head>
 <body>
 <main class="wrap">
@@ -72,11 +72,20 @@
       <h3>对方棋盘 · 攻击与推测</h3>
       <div class="guess-tools">
         <button class="secondary" id="onlineGuessToggle">✏️ 推测标记：关</button>
-        <label>推测朝向 <select id="onlineGuessDir"><option value="U">↑</option><option value="R">→</option><option value="D">↓</option><option value="L">←</option></select></label>
         <button class="secondary" id="onlineGuessUndo">撤销推测</button>
         <button class="ghost" id="onlineGuessClear">清空推测</button>
       </div>
-      <div class="small">开启推测标记后，点击格子放置假设飞机；点击已有假设可删除并重新修改。标记仅保存在本机。</div>
+      <div class="placement-editor guess-editor hide" id="onlineGuessEditor">
+        <strong id="onlineGuessSelection">点击棋盘设置第一架推测飞机的机头</strong>
+        <div class="placement-actions">
+          <button class="secondary" id="onlineGuessRotateLeft" aria-label="推测飞机逆时针旋转">↺ 逆时针</button>
+          <button class="secondary" id="onlineGuessRotateRight" aria-label="推测飞机顺时针旋转">↻ 顺时针</button>
+          <button id="onlineGuessConfirm">✓ 确认推测</button>
+          <button class="secondary" id="onlineGuessCancel">取消调整</button>
+          <button class="ghost" id="onlineGuessDelete">删除此推测</button>
+        </div>
+      </div>
+      <div class="small">开启后点击棋盘设置推测机头，默认向下；可移动、旋转并确认，也可点击已有推测重新调整。标记仅保存在本机。</div>
     </div>
     <div id="onlineBoard"></div>
     <div id="onlineOwnPanel" class="board-panel hide">
@@ -121,11 +130,20 @@
         <h3>对方棋盘 · 攻击与推测</h3>
         <div class="guess-tools">
           <button class="secondary" id="localGuessToggle">✏️ 推测标记：关</button>
-          <label>推测朝向 <select id="localGuessDir"><option value="U">↑</option><option value="R">→</option><option value="D">↓</option><option value="L">←</option></select></label>
           <button class="secondary" id="localGuessUndo">撤销推测</button>
           <button class="ghost" id="localGuessClear">清空推测</button>
         </div>
-        <div class="small">开启推测标记后，点击格子放置假设飞机；点击已有假设可删除并重新修改。</div>
+        <div class="placement-editor guess-editor hide" id="localGuessEditor">
+          <strong id="localGuessSelection">点击棋盘设置第一架推测飞机的机头</strong>
+          <div class="placement-actions">
+            <button class="secondary" id="localGuessRotateLeft" aria-label="推测飞机逆时针旋转">↺ 逆时针</button>
+            <button class="secondary" id="localGuessRotateRight" aria-label="推测飞机顺时针旋转">↻ 顺时针</button>
+            <button id="localGuessConfirm">✓ 确认推测</button>
+            <button class="secondary" id="localGuessCancel">取消调整</button>
+            <button class="ghost" id="localGuessDelete">删除此推测</button>
+          </div>
+        </div>
+        <div class="small">开启后点击棋盘设置推测机头，默认向下；可移动、旋转并确认，也可点击已有推测重新调整。</div>
       </div>
       <div id="localBoard"></div>
       <div id="localOwnPanel" class="board-panel hide">
@@ -146,6 +164,6 @@
 
   <p class="message" id="message" role="status" aria-live="polite"></p>
 </main>
-<script src="./app.js?v=20261028-3"></script>
+<script src="./app.js?v=20261028-4"></script>
 </body>
 </html>

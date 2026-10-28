@@ -4,7 +4,7 @@ const apiBase=(document.querySelector('meta[name="api-base"]')?.content||'').rep
 const sessionKey='airplane-online-session-v2';
 let activeMode='online';
 let timer=null;
-let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,guesses:[],guessMode:false,draftPlane:null,draftIndex:-1};
+let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,guesses:[],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
 let local=null;
 const cueState={};
 
@@ -129,14 +129,6 @@ function paintOwnDamage(el,n,planes,incoming){
   else if(destroyed.has(planeIndex)){el.classList.add('destroyed');el.textContent=shot.result==='kill'?'✕':'●'}
   else{el.classList.add(shot.result);el.textContent=shot.result==='kill'?'✕':'●'}
 }
-function editGuess(guesses,cell,x,y,dir,max){
-  const existing=guesses.findIndex(guess=>shape(guess)?.cells.includes(cell));
-  if(existing>=0){guesses.splice(existing,1);return true}
-  if(guesses.length>=max){message(`最多标记 ${max} 架推测飞机`);return false}
-  const candidate={x,y,dir};
-  if(!validPlane(candidate,guesses)){message('推测飞机越界或与已有推测重叠');return false}
-  guesses.push(candidate);message('');return true;
-}
 function draftPlacementStatus(planes,holder){
   const draft=holder.draftPlane;if(!draft)return {valid:false,reason:''};
   const draftShape=shape(draft);if(!draftShape)return {valid:false,reason:'飞机超出棋盘'};
@@ -144,9 +136,9 @@ function draftPlacementStatus(planes,holder){
   if(draftShape.cells.some(cell=>used.has(cell)))return {valid:false,reason:'飞机与其他飞机重叠'};
   return {valid:true,reason:''};
 }
-function paintDraftPlane(el,n,draft,valid){
+function paintDraftPlane(el,n,draft,valid,guess=false){
   const cells=planeCoordinates(draft).filter(({x,y})=>x>=0&&x<10&&y>=0&&y<10).map(({x,y})=>y*10+x);if(!cells.includes(n))return;
-  el.classList.add(n===draft.y*10+draft.x?'draft-head':'draft-body');if(!valid)el.classList.add('draft-invalid');if(n===draft.y*10+draft.x)el.textContent=headSymbol(draft);
+  el.classList.add(n===draft.y*10+draft.x?'draft-head':'draft-body');if(guess)el.classList.add('guess-draft');if(!valid)el.classList.add('draft-invalid');if(n===draft.y*10+draft.x)el.textContent=headSymbol(draft);
 }
 function syncPlacementControls(prefix,planes,holder,max){
   const hasDraft=!!holder.draftPlane,{valid,reason}=draftPlacementStatus(planes,holder),selection=$(`${prefix}Selection`);
@@ -180,6 +172,47 @@ function confirmDraftPlane(planes,holder,rerender){
 function cancelDraftPlane(holder,rerender){holder.draftPlane=null;holder.draftIndex=-1;message('');rerender()}
 function deleteEditingPlane(planes,holder,rerender){
   if(holder.draftIndex<0)return;planes.splice(holder.draftIndex,1);holder.draftPlane=null;holder.draftIndex=-1;message('飞机已删除');rerender();
+}
+function guessDraftStatus(guesses,holder){
+  const draft=holder.guessDraftPlane;if(!draft)return {valid:false,reason:''};
+  const draftShape=shape(draft);if(!draftShape)return {valid:false,reason:'推测飞机超出棋盘'};
+  const others=guesses.filter((_,index)=>index!==holder.guessDraftIndex),used=new Set(others.flatMap(guess=>shape(guess)?.cells||[]));
+  if(draftShape.cells.some(cell=>used.has(cell)))return {valid:false,reason:'推测飞机与其他推测重叠'};
+  return {valid:true,reason:''};
+}
+function guessDraftView(guesses,holder){
+  const status=guessDraftStatus(guesses,holder),visible=holder.guessDraftIndex>=0?guesses.filter((_,index)=>index!==holder.guessDraftIndex):guesses;
+  return {...status,visible};
+}
+function syncGuessControls(prefix,guesses,holder,max,active){
+  const hasDraft=!!holder.guessDraftPlane,{valid,reason}=guessDraftStatus(guesses,holder),selection=$(`${prefix}Selection`);
+  $(`${prefix}Editor`).classList.toggle('hide',!active);$(`${prefix}RotateLeft`).disabled=!hasDraft;$(`${prefix}RotateRight`).disabled=!hasDraft;$(`${prefix}Confirm`).disabled=!valid;$(`${prefix}Cancel`).disabled=!hasDraft;$(`${prefix}Delete`).disabled=!(hasDraft&&holder.guessDraftIndex>=0);
+  $(`${prefix}Confirm`).textContent=holder.guessDraftIndex>=0?'✓ 保存调整':'✓ 确认推测';$(`${prefix}Undo`).disabled=guesses.length===0||hasDraft;$(`${prefix}Clear`).disabled=guesses.length===0&&!hasDraft;selection.classList.toggle('invalid-text',hasDraft&&!valid);
+  if(!hasDraft)selection.textContent=guesses.length>=max?`已标记 ${max} 架推测飞机；点击任意一架可重新调整`:`点击棋盘设置第 ${guesses.length+1} 架推测飞机的机头（默认向下）`;
+  else if(!valid)selection.textContent=`⚠️ ${reason}：请移动机头或旋转`;
+  else selection.textContent=holder.guessDraftIndex>=0?`第 ${holder.guessDraftIndex+1} 架推测位置有效：请保存调整`:'推测位置有效：可旋转或确认';
+}
+function handleGuessCell(guesses,holder,max,n,x,y,rerender){
+  if(holder.guessDraftPlane){holder.guessDraftPlane={...holder.guessDraftPlane,x,y};message('');rerender();return}
+  const hit=planeAtCell(guesses,n);
+  if(hit>=0){holder.guessDraftPlane={...guesses[hit]};holder.guessDraftIndex=hit;message(`正在调整第 ${hit+1} 架推测飞机`);rerender();return}
+  if(guesses.length>=max){message(`最多标记 ${max} 架推测飞机；可点击已有推测进行调整`);return}
+  holder.guessDraftPlane={x,y,dir:'U'};holder.guessDraftIndex=-1;message('');rerender();
+}
+function rotateGuessDraft(holder,step,rerender){
+  if(!holder.guessDraftPlane)return;const dirs=['U','R','D','L'],current=holder.guessDraftPlane.dir,next=dirs[(dirs.indexOf(current)+step+4)%4];holder.guessDraftPlane={...holder.guessDraftPlane,dir:next};message('');rerender();
+}
+function confirmGuessDraft(guesses,holder,persist,rerender){
+  if(!guessDraftStatus(guesses,holder).valid)return;
+  if(holder.guessDraftIndex>=0)guesses[holder.guessDraftIndex]={...holder.guessDraftPlane};else guesses.push({...holder.guessDraftPlane});
+  holder.guessDraftPlane=null;holder.guessDraftIndex=-1;if(persist)persist();message('推测飞机已确认');rerender();
+}
+function cancelGuessDraft(holder,rerender){holder.guessDraftPlane=null;holder.guessDraftIndex=-1;message('');rerender()}
+function deleteGuessDraft(guesses,holder,persist,rerender){
+  if(holder.guessDraftIndex<0)return;guesses.splice(holder.guessDraftIndex,1);holder.guessDraftPlane=null;holder.guessDraftIndex=-1;if(persist)persist();message('推测飞机已删除');rerender();
+}
+function toggleGuessMode(holder,rerender){
+  holder.guessMode=!holder.guessMode;if(!holder.guessMode){holder.guessDraftPlane=null;holder.guessDraftIndex=-1}message('');rerender();
 }
 function updateTurnCue(id,on,key){
   const el=$(id);el.classList.toggle('your-turn',on);
@@ -228,7 +261,7 @@ async function api(action,data={}){
 }
 function inviteUrl(room){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('room',room);return url.toString()}
 function onlineSession(session){
-  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=loadOnlineGuesses();online.draftPlane=null;online.draftIndex=-1;
+  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=loadOnlineGuesses();online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;
   localStorage.setItem(sessionKey,JSON.stringify({room:online.room,token:online.token,seat:online.seat}));
   const url=new URL(location.href);url.search='';url.searchParams.set('room',online.room);history.replaceState(null,'',url);
   $('home').classList.add('hide');$('onlineGame').classList.remove('hide');$('localGame').classList.add('hide');
@@ -240,6 +273,7 @@ function onlinePlacementGrid(){
 function renderOnline(){
   const state=online.state;if(!state)return;
   const players=state.players,playing=state.status==='playing',done=state.status==='done',me=players[online.seat],other=players[1-online.seat];
+  if(!playing&&online.guessDraftPlane){online.guessDraftPlane=null;online.guessDraftIndex=-1;online.guessMode=false}
   $('onlineHeading').textContent=`房间 ${online.room} · ${online.seat===0?'玩家1':'玩家2'}`;$('roomText').textContent=`房间号：${online.room}`;
   $('shareRow').classList.toggle('hide',state.status!=='waiting');$('onlinePlacement').classList.toggle('hide',online.ready||state.status!=='waiting');
   $('onlineReady').disabled=online.planes.length!==state.count||!!online.draftPlane;$('onlineReady').textContent=`完成布阵（${online.planes.length}/${state.count}）`;
@@ -253,18 +287,20 @@ function renderOnline(){
   $('onlineGuessToggle').classList.toggle('active',online.guessMode);
   $('onlineGuessToggle').setAttribute('aria-pressed',String(online.guessMode));
   $('onlineGuessToggle').textContent=`✏️ 推测标记：${online.guessMode?'开':'关'}`;
-  $('onlineGuessUndo').disabled=online.guesses.length===0;$('onlineGuessClear').disabled=online.guesses.length===0;
+  syncGuessControls('onlineGuess',online.guesses,online,state.count,playing&&online.guessMode);
   $('onlineBoard').classList.toggle('guess-active',playing&&online.guessMode);
   updateTurnCue('onlineStatus',myTurn,`${online.room}:${state.updated}`);
   if(state.status==='waiting'&&!online.ready)onlinePlacementGrid();
   else if(playing||done){
+    const guessView=guessDraftView(online.guesses,online);
     grid('onlineBoard',(el,n,x,y)=>{
-      paintGuesses(el,n,online.guesses);const alreadyShot=paintShots(el,n,myShots);
-      if(playing&&online.guessMode){el.onclick=()=>{if(editGuess(online.guesses,n,x,y,$('onlineGuessDir').value,state.count)){saveOnlineGuesses();renderOnline()}};return}
+      paintGuesses(el,n,guessView.visible);const alreadyShot=paintShots(el,n,myShots);if(playing&&online.guessMode&&online.guessDraftPlane)paintDraftPlane(el,n,online.guessDraftPlane,guessView.valid,true);
+      if(playing&&online.guessMode){el.onclick=()=>handleGuessCell(online.guesses,online,state.count,n,x,y,renderOnline);return}
       if(alreadyShot){el.disabled=true;return}
       el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{online.state=await api('shot',{cell:n});renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
     });
-    renderPlaneOutlines('onlineBoard',online.guesses,{guess:true});
+    renderPlaneOutlines('onlineBoard',guessView.visible,{guess:true});
+    if(playing&&online.guessMode&&online.guessDraftPlane)renderPlaneOutlines('onlineBoard',[online.guessDraftPlane],{guess:true,draft:true,invalid:!guessView.valid,allowInvalid:true});
   }else{
     grid('onlineBoard',(el,n)=>{paintPlanes(el,n,online.planes);el.disabled=true});renderPlaneOutlines('onlineBoard',online.planes);
   }
@@ -291,9 +327,14 @@ $('onlineConfirmPlane').onclick=()=>confirmDraftPlane(online.planes,online,rende
 $('onlineCancelPlane').onclick=()=>cancelDraftPlane(online,renderOnline);
 $('onlineDelete').onclick=()=>deleteEditingPlane(online.planes,online,renderOnline);
 $('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count||online.draftPlane)return;try{online.state=await api('ready',{planes:online.planes});online.ready=true;renderOnline()}catch(e){message(e.message)}};
-$('onlineGuessToggle').onclick=()=>{online.guessMode=!online.guessMode;renderOnline()};
-$('onlineGuessUndo').onclick=()=>{online.guesses.pop();saveOnlineGuesses();renderOnline()};
-$('onlineGuessClear').onclick=()=>{online.guesses=[];saveOnlineGuesses();renderOnline()};
+$('onlineGuessToggle').onclick=()=>toggleGuessMode(online,renderOnline);
+$('onlineGuessRotateLeft').onclick=()=>rotateGuessDraft(online,-1,renderOnline);
+$('onlineGuessRotateRight').onclick=()=>rotateGuessDraft(online,1,renderOnline);
+$('onlineGuessConfirm').onclick=()=>confirmGuessDraft(online.guesses,online,saveOnlineGuesses,renderOnline);
+$('onlineGuessCancel').onclick=()=>cancelGuessDraft(online,renderOnline);
+$('onlineGuessDelete').onclick=()=>deleteGuessDraft(online.guesses,online,saveOnlineGuesses,renderOnline);
+$('onlineGuessUndo').onclick=()=>{if(online.guessDraftPlane)return;online.guesses.pop();saveOnlineGuesses();renderOnline()};
+$('onlineGuessClear').onclick=()=>{online.guesses=[];online.guessDraftPlane=null;online.guessDraftIndex=-1;saveOnlineGuesses();renderOnline()};
 $('share').onclick=async()=>{const url=inviteUrl(online.room);try{if(navigator.share)await navigator.share({title:'加入空战棋盘',text:`房间号：${online.room}`,url});else{await navigator.clipboard.writeText(url);message('邀请链接已复制，发给对方即可')}}catch(e){if(e.name!=='AbortError')prompt('复制邀请链接',url)}};
 $('onlineHome').onclick=showHome;
 
@@ -304,10 +345,10 @@ function resolveShot(attacker,cell){
   local.shots.push({by:attacker,cell,result,planeId:result==='kill'?planeId:undefined,n:local.shots.length+1});
   if(killsBy(attacker)===local.count){local.phase='done';local.winner=attacker}else local.turn=1-attacker;
 }
-function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
+function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;local.guessDraftPlane=null;local.guessDraftIndex=-1;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
 function startLocal(){
   const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value);
-  local={mode,count,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1};
+  local={mode,count,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
   $('home').classList.add('hide');$('onlineGame').classList.add('hide');$('localGame').classList.remove('hide');message('');renderLocal();
 }
 function localPlacementGrid(){
@@ -337,16 +378,18 @@ function renderLocal(){
     $('localStatus').textContent=`${label} · 玩家1击毁 ${killsBy(0)}/${local.count}，${ai?'电脑':'玩家2'}击毁 ${killsBy(1)}/${local.count}`;
     $('localGuessToggle').classList.toggle('active',local.guessMode);$('localGuessToggle').textContent=`✏️ 推测标记：${local.guessMode?'开':'关'}`;
     $('localGuessToggle').setAttribute('aria-pressed',String(local.guessMode));
-    $('localGuessUndo').disabled=guesses.length===0;$('localGuessClear').disabled=guesses.length===0;
+    syncGuessControls('localGuess',guesses,local,local.count,local.guessMode&&!done);
     $('localBoard').classList.toggle('guess-active',local.guessMode&&!done);
     updateTurnCue('localStatus',humanTurn,`${viewer}:${local.shots.length}`);
+    const guessView=guessDraftView(guesses,local);
     grid('localBoard',(el,n,x,y)=>{
-      paintGuesses(el,n,guesses);const alreadyShot=paintShots(el,n,outgoing);
-      if(!done&&local.guessMode){el.onclick=()=>{if(editGuess(guesses,n,x,y,$('localGuessDir').value,local.count))renderLocal()};return}
+      paintGuesses(el,n,guessView.visible);const alreadyShot=paintShots(el,n,outgoing);if(!done&&local.guessMode&&local.guessDraftPlane)paintDraftPlane(el,n,local.guessDraftPlane,guessView.valid,true);
+      if(!done&&local.guessMode){el.onclick=()=>handleGuessCell(guesses,local,local.count,n,x,y,renderLocal);return}
       if(alreadyShot){el.disabled=true;return}
       el.disabled=done||local.busy;el.onclick=()=>localAttack(n);
     });
-    renderPlaneOutlines('localBoard',guesses,{guess:true});
+    renderPlaneOutlines('localBoard',guessView.visible,{guess:true});
+    if(!done&&local.guessMode&&local.guessDraftPlane)renderPlaneOutlines('localBoard',[local.guessDraftPlane],{guess:true,draft:true,invalid:!guessView.valid,allowInvalid:true});
     grid('localOwnBoard',(el,n)=>{paintOwnDamage(el,n,local.players[viewer].planes,incoming);el.disabled=true});
     renderPlaneOutlines('localOwnBoard',local.players[viewer].planes,{destroyed:destroyedPlaneIds(incoming)});
   }
@@ -387,9 +430,14 @@ $('localConfirmPlane').onclick=()=>confirmDraftPlane(local.players[local.placing
 $('localCancelPlane').onclick=()=>cancelDraftPlane(local,renderLocal);
 $('localDelete').onclick=()=>deleteEditingPlane(local.players[local.placingSeat].planes,local,renderLocal);
 $('localReady').onclick=localReady;
-$('localGuessToggle').onclick=()=>{local.guessMode=!local.guessMode;renderLocal()};
-$('localGuessUndo').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;local.guesses[viewer].pop();renderLocal()};
-$('localGuessClear').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;local.guesses[viewer]=[];renderLocal()};
+$('localGuessToggle').onclick=()=>toggleGuessMode(local,renderLocal);
+$('localGuessRotateLeft').onclick=()=>rotateGuessDraft(local,-1,renderLocal);
+$('localGuessRotateRight').onclick=()=>rotateGuessDraft(local,1,renderLocal);
+$('localGuessConfirm').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;confirmGuessDraft(local.guesses[viewer],local,null,renderLocal)};
+$('localGuessCancel').onclick=()=>cancelGuessDraft(local,renderLocal);
+$('localGuessDelete').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;deleteGuessDraft(local.guesses[viewer],local,null,renderLocal)};
+$('localGuessUndo').onclick=()=>{if(local.guessDraftPlane)return;const viewer=local.mode==='ai'?0:local.turn;local.guesses[viewer].pop();renderLocal()};
+$('localGuessClear').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;local.guesses[viewer]=[];local.guessDraftPlane=null;local.guessDraftIndex=-1;renderLocal()};
 $('handoffContinue').onclick=()=>{const next=local.handoffNext;local.awaitingPass=false;local.handoffNext=null;if(next)next();else renderLocal()};
 $('localHome').onclick=showHome;
 

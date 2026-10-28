@@ -4,7 +4,7 @@ const apiBase=(document.querySelector('meta[name="api-base"]')?.content||'').rep
 const sessionKey='airplane-online-session-v2';
 let activeMode='online';
 let timer=null;
-let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,guesses:[],guessMode:false};
+let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,guesses:[],guessMode:false,selectedPlane:-1,movingPlane:false};
 let local=null;
 const cueState={};
 
@@ -46,6 +46,60 @@ function grid(target,render){
   }
   root.appendChild(board);
 }
+function planeAtCell(planes,cell){return planes.findIndex(p=>shape(p)?.cells.includes(cell))}
+function destroyedPlaneIds(shots){return new Set(shots.filter(s=>s.result==='kill'&&Number.isInteger(s.planeId)).map(s=>s.planeId))}
+function planeOutlinePath(p){
+  let dx=0,dy=0;
+  if(p.dir==='U')dy=-1;if(p.dir==='D')dy=1;if(p.dir==='L')dx=-1;if(p.dir==='R')dx=1;
+  const sx=-dy,sy=dx,cx=p.x+.5,cy=p.y+.5;
+  const point=(f,s)=>`${(cx+f*dx+s*sx).toFixed(3)},${(cy+f*dy+s*sy).toFixed(3)}`;
+  return [
+    `M${point(-.46,0)}`,
+    `C${point(-.28,.16)} ${point(.18,.34)} ${point(.52,.43)}`,
+    `L${point(.58,2.18)}`,
+    `Q${point(.60,2.48)} ${point(.88,2.48)}`,
+    `L${point(1.18,2.48)}`,
+    `Q${point(1.45,2.48)} ${point(1.42,2.18)}`,
+    `L${point(1.38,.45)}`,
+    `L${point(2.48,.38)}`,
+    `L${point(2.56,1.16)}`,
+    `Q${point(2.58,1.48)} ${point(2.90,1.48)}`,
+    `L${point(3.18,1.48)}`,
+    `Q${point(3.48,1.48)} ${point(3.45,1.18)}`,
+    `L${point(3.45,-1.18)}`,
+    `Q${point(3.48,-1.48)} ${point(3.18,-1.48)}`,
+    `L${point(2.90,-1.48)}`,
+    `Q${point(2.58,-1.48)} ${point(2.56,-1.16)}`,
+    `L${point(2.48,-.38)}`,
+    `L${point(1.38,-.45)}`,
+    `L${point(1.42,-2.18)}`,
+    `Q${point(1.45,-2.48)} ${point(1.18,-2.48)}`,
+    `L${point(.88,-2.48)}`,
+    `Q${point(.60,-2.48)} ${point(.58,-2.18)}`,
+    `L${point(.52,-.43)}`,
+    `C${point(.18,-.34)} ${point(-.28,-.16)} ${point(-.46,0)} Z`
+  ].join(' ');
+}
+function positionPlaneOverlay(svg){
+  const board=svg.parentElement,cells=board?.querySelectorAll('.cell');if(!cells||cells.length<100)return;
+  const first=cells[0],last=cells[99];
+  svg.style.left=`${first.offsetLeft}px`;svg.style.top=`${first.offsetTop}px`;
+  svg.style.width=`${last.offsetLeft+last.offsetWidth-first.offsetLeft}px`;svg.style.height=`${last.offsetTop+last.offsetHeight-first.offsetTop}px`;
+}
+function renderPlaneOutlines(target,planes,{selected=-1,destroyed=new Set(),guess=false}={}){
+  const board=$(target)?.querySelector('.board');if(!board||!planes?.length)return;
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.classList.add('plane-overlay');svg.setAttribute('viewBox','0 0 10 10');svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('aria-hidden','true');
+  planes.forEach((plane,index)=>{
+    if(!shape(plane))return;
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',planeOutlinePath(plane));
+    path.classList.add('plane-outline',`plane-${index%4}`);
+    if(index===selected)path.classList.add('selected-outline');if(destroyed.has(index))path.classList.add('destroyed-outline');if(guess)path.classList.add('guess-outline');
+    svg.appendChild(path);
+  });
+  board.appendChild(svg);positionPlaneOverlay(svg);
+}
+window.addEventListener('resize',()=>requestAnimationFrame(()=>document.querySelectorAll('.plane-overlay').forEach(positionPlaneOverlay)));
 function paintPlanes(el,n,planes){
   for(const p of planes){const s=shape(p);if(!s)continue;if(s.head===n){el.classList.add('head');el.textContent='▲';return}if(s.cells.includes(n)){el.classList.add('body');return}}
 }
@@ -57,7 +111,7 @@ function paintGuesses(el,n,guesses){
   for(const guess of guesses){const s=shape(guess);if(!s)continue;if(s.head===n){el.classList.add('guess-head');return}if(s.cells.includes(n)){el.classList.add('guess-body');return}}
 }
 function paintOwnDamage(el,n,planes,incoming){
-  const destroyed=new Set(incoming.filter(s=>s.result==='kill'&&Number.isInteger(s.planeId)).map(s=>s.planeId));
+  const destroyed=destroyedPlaneIds(incoming);
   let planeIndex=-1,planeShape=null;
   for(let i=0;i<planes.length;i++){const s=shape(planes[i]);if(s?.cells.includes(n)){planeIndex=i;planeShape=s;break}}
   if(planeIndex>=0){
@@ -77,6 +131,50 @@ function editGuess(guesses,cell,x,y,dir,max){
   const candidate={x,y,dir};
   if(!validPlane(candidate,guesses)){message('推测飞机越界或与已有推测重叠');return false}
   guesses.push(candidate);message('');return true;
+}
+function updateSelectedPlane(planes,holder,patch){
+  const index=holder.selectedPlane;if(index<0||index>=planes.length)return false;
+  const candidate={...planes[index],...patch},others=planes.filter((_,i)=>i!==index);
+  if(!validPlane(candidate,others))return false;
+  planes[index]=candidate;return true;
+}
+function syncPlacementControls(prefix,planes,holder){
+  if(holder.selectedPlane>=planes.length)holder.selectedPlane=planes.length-1;
+  const selected=holder.selectedPlane>=0&&holder.selectedPlane<planes.length;
+  if(!selected)holder.movingPlane=false;
+  for(const suffix of ['RotateLeft','RotateRight','Move','Delete'])$(`${prefix}${suffix}`).disabled=!selected;
+  const move=$(`${prefix}Move`);move.classList.toggle('active',selected&&holder.movingPlane);move.setAttribute('aria-pressed',String(selected&&holder.movingPlane));move.textContent=holder.movingPlane?'🎯 点新机头':'📍 移动机头';
+  if(selected){
+    $(`${prefix}Selection`).textContent=holder.movingPlane?`已选中第 ${holder.selectedPlane+1} 架：请点击新的机头位置`:`已选中第 ${holder.selectedPlane+1} 架：可旋转、移动或删除`;
+  }else $(`${prefix}Selection`).textContent='点击飞机任意一格即可选中';
+}
+function handlePlacementCell(planes,holder,max,n,x,y,dirId,rerender){
+  if(holder.movingPlane&&holder.selectedPlane>=0){
+    if(!updateSelectedPlane(planes,holder,{x,y})){message('无法移到这里：飞机会越界或与其他飞机重叠');return}
+    holder.movingPlane=false;message('飞机位置已更新');rerender();return;
+  }
+  const hit=planeAtCell(planes,n);
+  if(hit>=0){holder.selectedPlane=hit;holder.movingPlane=false;message(`已选中第 ${hit+1} 架飞机`);rerender();return}
+  if(planes.length>=max){message('已放满飞机。请先点击一架飞机，再旋转或移动');return}
+  const candidate={x,y,dir:$(dirId).value};
+  if(!validPlane(candidate,planes)){message('位置无效：飞机越界或与其他飞机重叠');return}
+  planes.push(candidate);holder.selectedPlane=planes.length-1;holder.movingPlane=false;message('');rerender();
+}
+function placementGrid(target,planes,holder,max,dirId,rerender){
+  grid(target,(el,n,x,y)=>{
+    paintPlanes(el,n,planes);const planeIndex=planeAtCell(planes,n);if(planeIndex===holder.selectedPlane)el.classList.add('selected-plane');
+    el.onclick=()=>handlePlacementCell(planes,holder,max,n,x,y,dirId,rerender);
+  });
+  renderPlaneOutlines(target,planes,{selected:holder.selectedPlane});
+}
+function rotateSelectedPlane(planes,holder,step,rerender){
+  if(holder.selectedPlane<0)return;const dirs=['U','R','D','L'],current=planes[holder.selectedPlane].dir,next=dirs[(dirs.indexOf(current)+step+4)%4];
+  if(!updateSelectedPlane(planes,holder,{dir:next})){message('这个方向会越界或与其他飞机重叠');return}
+  message('');rerender();
+}
+function toggleMovePlane(holder,rerender){if(holder.selectedPlane<0)return;holder.movingPlane=!holder.movingPlane;message(holder.movingPlane?'请在棋盘上点击新的机头位置':'');rerender()}
+function deleteSelectedPlane(planes,holder,rerender){
+  if(holder.selectedPlane<0)return;planes.splice(holder.selectedPlane,1);holder.selectedPlane=planes.length?Math.min(holder.selectedPlane,planes.length-1):-1;holder.movingPlane=false;message('');rerender();
 }
 function updateTurnCue(id,on,key){
   const el=$(id);el.classList.toggle('your-turn',on);
@@ -125,14 +223,14 @@ async function api(action,data={}){
 }
 function inviteUrl(room){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('room',room);return url.toString()}
 function onlineSession(session){
-  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=loadOnlineGuesses();
+  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.guessMode=false;online.guesses=loadOnlineGuesses();online.selectedPlane=-1;online.movingPlane=false;
   localStorage.setItem(sessionKey,JSON.stringify({room:online.room,token:online.token,seat:online.seat}));
   const url=new URL(location.href);url.search='';url.searchParams.set('room',online.room);history.replaceState(null,'',url);
   $('home').classList.add('hide');$('onlineGame').classList.remove('hide');$('localGame').classList.add('hide');
   if(timer)clearInterval(timer);refreshOnline();timer=setInterval(refreshOnline,1500);
 }
 function onlinePlacementGrid(){
-  grid('onlineBoard',(el,n,x,y)=>{paintPlanes(el,n,online.planes);el.onclick=()=>{if(online.planes.length>=online.state.count)return;const p={x,y,dir:$('onlineDir').value};if(!validPlane(p,online.planes)){message('位置无效：飞机越界或与其他飞机重叠');return}online.planes.push(p);message('');renderOnline()}});
+  placementGrid('onlineBoard',online.planes,online,online.state.count,'onlineDir',renderOnline);
 }
 function renderOnline(){
   const state=online.state;if(!state)return;
@@ -140,6 +238,7 @@ function renderOnline(){
   $('onlineHeading').textContent=`房间 ${online.room} · ${online.seat===0?'玩家1':'玩家2'}`;$('roomText').textContent=`房间号：${online.room}`;
   $('shareRow').classList.toggle('hide',state.status!=='waiting');$('onlinePlacement').classList.toggle('hide',online.ready||state.status!=='waiting');
   $('onlineReady').disabled=online.planes.length!==state.count;$('onlineReady').textContent=`完成布阵（${online.planes.length}/${state.count}）`;
+  syncPlacementControls('online',online.planes,online);
   const myTurn=playing&&state.turn===online.seat;
   const label=done?(state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(myTurn?(online.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击：点击目标坐标'):'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
   $('onlineStatus').textContent=`${label} · 机头击毁 ${me.kills}/${state.count}，对方击毁 ${other.kills}/${state.count}`;
@@ -153,16 +252,23 @@ function renderOnline(){
   $('onlineBoard').classList.toggle('guess-active',playing&&online.guessMode);
   updateTurnCue('onlineStatus',myTurn,`${online.room}:${state.updated}`);
   if(state.status==='waiting'&&!online.ready)onlinePlacementGrid();
-  else if(playing||done)grid('onlineBoard',(el,n,x,y)=>{
-    paintGuesses(el,n,online.guesses);const alreadyShot=paintShots(el,n,myShots);
-    if(playing&&online.guessMode){el.onclick=()=>{if(editGuess(online.guesses,n,x,y,$('onlineGuessDir').value,state.count)){saveOnlineGuesses();renderOnline()}};return}
-    if(alreadyShot){el.disabled=true;return}
-    el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{online.state=await api('shot',{cell:n});renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
-  });
-  else grid('onlineBoard',(el,n)=>{paintPlanes(el,n,online.planes);el.disabled=true});
-  if(playing||done)grid('onlineOwnBoard',(el,n)=>{paintOwnDamage(el,n,online.planes,incoming);el.disabled=true});
+  else if(playing||done){
+    grid('onlineBoard',(el,n,x,y)=>{
+      paintGuesses(el,n,online.guesses);const alreadyShot=paintShots(el,n,myShots);
+      if(playing&&online.guessMode){el.onclick=()=>{if(editGuess(online.guesses,n,x,y,$('onlineGuessDir').value,state.count)){saveOnlineGuesses();renderOnline()}};return}
+      if(alreadyShot){el.disabled=true;return}
+      el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{online.state=await api('shot',{cell:n});renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
+    });
+    renderPlaneOutlines('onlineBoard',online.guesses,{guess:true});
+  }else{
+    grid('onlineBoard',(el,n)=>{paintPlanes(el,n,online.planes);el.disabled=true});renderPlaneOutlines('onlineBoard',online.planes);
+  }
+  if(playing||done){
+    grid('onlineOwnBoard',(el,n)=>{paintOwnDamage(el,n,online.planes,incoming);el.disabled=true});
+    renderPlaneOutlines('onlineOwnBoard',online.planes,{destroyed:destroyedPlaneIds(incoming)});
+  }
   renderHistory('onlineMyHistory',myShots);renderHistory('onlineTheirHistory',incoming);
-  $('onlineReveal').classList.toggle('hide',!done);if(done&&state.opponentPlanes)grid('onlineEnemyBoard',(el,n)=>{paintOwnDamage(el,n,state.opponentPlanes,myShots);el.disabled=true});
+  $('onlineReveal').classList.toggle('hide',!done);if(done&&state.opponentPlanes){grid('onlineEnemyBoard',(el,n)=>{paintOwnDamage(el,n,state.opponentPlanes,myShots);el.disabled=true});renderPlaneOutlines('onlineEnemyBoard',state.opponentPlanes,{destroyed:destroyedPlaneIds(myShots)})}
   $('onlineResult').textContent=done?'游戏结束：双方完整攻击历史已保留，对方布局已公开。':playing?'橙色=命中机身，红色=击毁机头，灰色=未击中。':'';
 }
 async function refreshOnline(){
@@ -172,9 +278,13 @@ async function refreshOnline(){
 }
 $('create').onclick=async()=>{try{const session=await api('create',{count:Number($('onlineCount').value)});onlineSession(session)}catch(e){message(e.message)}};
 $('join').onclick=async()=>{try{online.room=$('roomInput').value.trim();const session=await api('join');onlineSession(session)}catch(e){message(e.message)}};
-$('onlineUndo').onclick=()=>{online.planes.pop();renderOnline()};
-$('onlineRandom').onclick=()=>{try{online.planes=randomPlanes(online.state.count);renderOnline()}catch(e){message(e.message)}};
-$('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count)return;try{online.state=await api('ready',{planes:online.planes});online.ready=true;renderOnline()}catch(e){message(e.message)}};
+$('onlineUndo').onclick=()=>{online.planes.pop();online.selectedPlane=online.planes.length-1;online.movingPlane=false;renderOnline()};
+$('onlineRandom').onclick=()=>{try{online.planes=randomPlanes(online.state.count);online.selectedPlane=0;online.movingPlane=false;renderOnline()}catch(e){message(e.message)}};
+$('onlineRotateLeft').onclick=()=>rotateSelectedPlane(online.planes,online,-1,renderOnline);
+$('onlineRotateRight').onclick=()=>rotateSelectedPlane(online.planes,online,1,renderOnline);
+$('onlineMove').onclick=()=>toggleMovePlane(online,renderOnline);
+$('onlineDelete').onclick=()=>deleteSelectedPlane(online.planes,online,renderOnline);
+$('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count)return;try{online.state=await api('ready',{planes:online.planes});online.ready=true;online.selectedPlane=-1;online.movingPlane=false;renderOnline()}catch(e){message(e.message)}};
 $('onlineGuessToggle').onclick=()=>{online.guessMode=!online.guessMode;renderOnline()};
 $('onlineGuessUndo').onclick=()=>{online.guesses.pop();saveOnlineGuesses();renderOnline()};
 $('onlineGuessClear').onclick=()=>{online.guesses=[];saveOnlineGuesses();renderOnline()};
@@ -191,12 +301,12 @@ function resolveShot(attacker,cell){
 function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
 function startLocal(){
   const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value);
-  local={mode,count,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false};
+  local={mode,count,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,selectedPlane:-1,movingPlane:false};
   $('home').classList.add('hide');$('onlineGame').classList.add('hide');$('localGame').classList.remove('hide');message('');renderLocal();
 }
 function localPlacementGrid(){
   const planes=local.players[local.placingSeat].planes;
-  grid('localBoard',(el,n,x,y)=>{paintPlanes(el,n,planes);el.onclick=()=>{if(planes.length>=local.count)return;const p={x,y,dir:$('localDir').value};if(!validPlane(p,planes)){message('位置无效：飞机越界或与其他飞机重叠');return}planes.push(p);message('');renderLocal()}});
+  placementGrid('localBoard',planes,local,local.count,'localDir',renderLocal);
 }
 function renderLocal(){
   if(!local)return;
@@ -211,6 +321,7 @@ function renderLocal(){
     updateTurnCue('localStatus',false,'');$('localBoard').classList.remove('guess-active');
     const p=local.players[local.placingSeat].planes;
     $('localReady').disabled=p.length!==local.count;$('localReady').textContent=`完成布阵（${p.length}/${local.count}）`;
+    syncPlacementControls('local',p,local);
     $('localStatus').textContent=`${ai?'你':`玩家${local.placingSeat+1}`}正在秘密布阵`;
     localPlacementGrid();
   }else{
@@ -229,7 +340,9 @@ function renderLocal(){
       if(alreadyShot){el.disabled=true;return}
       el.disabled=done||local.busy;el.onclick=()=>localAttack(n);
     });
+    renderPlaneOutlines('localBoard',guesses,{guess:true});
     grid('localOwnBoard',(el,n)=>{paintOwnDamage(el,n,local.players[viewer].planes,incoming);el.disabled=true});
+    renderPlaneOutlines('localOwnBoard',local.players[viewer].planes,{destroyed:destroyedPlaneIds(incoming)});
   }
   const one=local.shots.filter(s=>s.by===0),two=local.shots.filter(s=>s.by===1);
   $('localHistoryOneTitle').textContent='玩家1攻击记录';$('localHistoryTwoTitle').textContent=`${ai?'电脑':'玩家2'}攻击记录`;
@@ -239,11 +352,13 @@ function renderLocal(){
     $('revealTitle0').textContent='玩家1布局';$('revealTitle1').textContent=`${ai?'电脑':'玩家2'}布局`;
     grid('localReveal0',(el,n)=>{paintOwnDamage(el,n,local.players[0].planes,two);el.disabled=true});
     grid('localReveal1',(el,n)=>{paintOwnDamage(el,n,local.players[1].planes,one);el.disabled=true});
+    renderPlaneOutlines('localReveal0',local.players[0].planes,{destroyed:destroyedPlaneIds(two)});renderPlaneOutlines('localReveal1',local.players[1].planes,{destroyed:destroyedPlaneIds(one)});
   }
 }
 function localReady(){
   const planes=local.players[local.placingSeat].planes;if(planes.length!==local.count)return;
-  if(local.mode==='same'&&local.placingSeat===0){local.placingSeat=1;beginHandoff('请交给玩家2','棋盘已经遮住。玩家2拿到手机后点击继续，独立完成布阵。',()=>{local.phase='placing';renderLocal()});return}
+  if(local.mode==='same'&&local.placingSeat===0){local.placingSeat=1;local.selectedPlane=-1;local.movingPlane=false;beginHandoff('请交给玩家2','棋盘已经遮住。玩家2拿到手机后点击继续，独立完成布阵。',()=>{local.phase='placing';renderLocal()});return}
+  local.selectedPlane=-1;local.movingPlane=false;
   local.phase='playing';local.turn=0;
   if(local.mode==='same')beginHandoff('请交给玩家1','双方布阵完成。玩家1拿到手机后点击继续并开始攻击。',renderLocal);else renderLocal();
 }
@@ -257,8 +372,12 @@ function localAttack(cell){
   setTimeout(()=>{const used=new Set(local.shots.filter(s=>s.by===1).map(s=>s.cell));const choices=Array.from({length:100},(_,i)=>i).filter(i=>!used.has(i));const cell=choices[Math.floor(Math.random()*choices.length)];resolveShot(1,cell);local.busy=false;renderLocal()},550);
 }
 $('startLocal').onclick=()=>{try{startLocal()}catch(e){message(e.message)}};
-$('localUndo').onclick=()=>{local.players[local.placingSeat].planes.pop();renderLocal()};
-$('localRandom').onclick=()=>{try{local.players[local.placingSeat].planes=randomPlanes(local.count);renderLocal()}catch(e){message(e.message)}};
+$('localUndo').onclick=()=>{const planes=local.players[local.placingSeat].planes;planes.pop();local.selectedPlane=planes.length-1;local.movingPlane=false;renderLocal()};
+$('localRandom').onclick=()=>{try{local.players[local.placingSeat].planes=randomPlanes(local.count);local.selectedPlane=0;local.movingPlane=false;renderLocal()}catch(e){message(e.message)}};
+$('localRotateLeft').onclick=()=>rotateSelectedPlane(local.players[local.placingSeat].planes,local,-1,renderLocal);
+$('localRotateRight').onclick=()=>rotateSelectedPlane(local.players[local.placingSeat].planes,local,1,renderLocal);
+$('localMove').onclick=()=>toggleMovePlane(local,renderLocal);
+$('localDelete').onclick=()=>deleteSelectedPlane(local.players[local.placingSeat].planes,local,renderLocal);
 $('localReady').onclick=localReady;
 $('localGuessToggle').onclick=()=>{local.guessMode=!local.guessMode;renderLocal()};
 $('localGuessUndo').onclick=()=>{const viewer=local.mode==='ai'?0:local.turn;local.guesses[viewer].pop();renderLocal()};

@@ -318,7 +318,7 @@ function renderOnline(){
       paintGuesses(el,n,guessView.visible);const alreadyShot=paintShots(el,n,myShots);if(playing&&online.guessMode&&online.guessDraftPlane)paintDraftPlane(el,n,online.guessDraftPlane,guessView.valid,true);
       if(playing&&online.guessMode){el.onclick=()=>handleGuessCell(online.guesses,online,state.count,n,x,y,renderOnline);return}
       if(alreadyShot){el.disabled=true;return}
-      el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('shot',{cell:n}));renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
+      el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('shot',{cell:n}));renderOnline()}catch(e){message(e.message)}finally{online.busy=false;renderOnline()}};
     });
     renderPlaneOutlines('onlineBoard',guessView.visible,{guess:true});
     if(playing&&online.guessMode&&online.guessDraftPlane)renderPlaneOutlines('onlineBoard',[online.guessDraftPlane],{guess:true,draft:true,invalid:!guessView.valid,allowInvalid:true});
@@ -352,7 +352,7 @@ $('onlineConfirmPlane').onclick=()=>confirmDraftPlane(online.planes,online,rende
 $('onlineCancelPlane').onclick=()=>cancelDraftPlane(online,renderOnline);
 $('onlineDelete').onclick=()=>deleteEditingPlane(online.planes,online,renderOnline);
 $('onlineReady').onclick=async()=>{if(online.planes.length!==online.state.count||online.draftPlane)return;try{applyOnlineState(await api('ready',{planes:online.planes}));renderOnline()}catch(e){message(e.message)}};
-$('onlineRematch').onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('rematch'));renderOnline()}catch(e){message(e.message)}finally{online.busy=false}};
+$('onlineRematch').onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('rematch'));renderOnline()}catch(e){message(e.message)}finally{online.busy=false;renderOnline()}};
 $('onlineGuessToggle').onclick=()=>toggleGuessMode(online,renderOnline);
 $('onlineGuessRotateLeft').onclick=()=>rotateGuessDraft(online,-1,renderOnline);
 $('onlineGuessRotateRight').onclick=()=>rotateGuessDraft(online,1,renderOnline);

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b1425">
   <meta name="api-base" content="https://airplane-battle-online.airplane-battle.workers.dev">
   <title>✈️ 空战棋盘</title>
-  <link rel="stylesheet" href="./styles.css?v=20261028-4">
+  <link rel="stylesheet" href="./styles.css?v=20261028-5">
 </head>
 <body>
 <main class="wrap">
@@ -40,6 +40,9 @@
       <h3 id="localModeTitle">人机对战</h3>
       <div class="row">每人飞机
         <select id="localCount"><option value="3">3 架</option><option value="4">4 架</option></select>
+        <label id="aiDifficultyControl" class="inline-control">电脑难度
+          <select id="aiDifficulty"><option value="easy">休闲 · 随机</option><option value="normal" selected>标准 · 命中追踪</option><option value="hard">困难 · 概率推理</option></select>
+        </label>
         <button id="startLocal">开始游戏</button>
       </div>
       <p class="small" id="localModeHelp"></p>
@@ -164,6 +167,6 @@
 
   <p class="message" id="message" role="status" aria-live="polite"></p>
 </main>
-<script src="./app.js?v=20261028-4"></script>
+<script type="module" src="./app.js?v=20261028-5"></script>
 </body>
 </html>

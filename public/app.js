@@ -1,3 +1,5 @@
+import {aiDifficultyLabel,chooseAiTarget} from './ai.js?v=20261028-5';
+
 const $=id=>document.getElementById(id);
 const letters='ABCDEFGHIJ';
 const apiBase=(document.querySelector('meta[name="api-base"]')?.content||'').replace(/\/$/,'');
@@ -248,10 +250,17 @@ function setMode(mode){
   $('onlineSetup').classList.toggle('hide',mode!=='online');$('localSetup').classList.toggle('hide',mode==='online');
   if(mode!=='online'){
     $('localModeTitle').textContent=mode==='ai'?'人机对战':'同机双人';
-    $('localModeHelp').textContent=mode==='ai'?'你布阵后与电脑轮流攻击；电脑会从未攻击的格子中选择目标。':'两位玩家依次秘密布阵，每回合攻击后遮住棋盘并传递手机。';
+    $('aiDifficultyControl').classList.toggle('hide',mode!=='ai');
+    updateLocalModeHelp();
   }
 }
+function updateLocalModeHelp(){
+  if(activeMode!=='ai'){$('localModeHelp').textContent='两位玩家依次秘密布阵，每回合攻击后遮住棋盘并传递手机。';return}
+  const difficulty=$('aiDifficulty').value,descriptions={easy:'休闲模式随机选择未攻击格。',normal:'标准模式会根据命中与未击中结果追踪可能机位。',hard:'困难模式会抽样符合全部已知结果的完整布局，优先攻击高概率机头。'};
+  $('localModeHelp').textContent=`${descriptions[difficulty]} 电脑不会读取你的隐藏飞机布局。`;
+}
 document.querySelectorAll('[data-mode]').forEach(button=>button.onclick=()=>setMode(button.dataset.mode));
+$('aiDifficulty').onchange=updateLocalModeHelp;
 
 async function api(action,data={}){
   if(!apiBase||apiBase.includes('REPLACE_ME'))throw Error('联网服务尚未完成部署');
@@ -347,8 +356,8 @@ function resolveShot(attacker,cell){
 }
 function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;local.guessDraftPlane=null;local.guessDraftIndex=-1;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
 function startLocal(){
-  const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value);
-  local={mode,count,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+  const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value),difficulty=mode==='ai'?$('aiDifficulty').value:null;
+  local={mode,count,difficulty,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
   $('home').classList.add('hide');$('onlineGame').classList.add('hide');$('localGame').classList.remove('hide');message('');renderLocal();
 }
 function localPlacementGrid(){
@@ -358,7 +367,7 @@ function localPlacementGrid(){
 function renderLocal(){
   if(!local)return;
   const ai=local.mode==='ai',placing=local.phase==='placing',done=local.phase==='done';
-  $('localHeading').textContent=ai?'🤖 人机对战':'👥 同机双人';
+  $('localHeading').textContent=ai?`🤖 人机对战 · ${aiDifficultyLabel(local.difficulty)}`:'👥 同机双人';
   $('handoff').classList.toggle('hide',!local.awaitingPass);$('localPlayArea').classList.toggle('hide',local.awaitingPass);
   if(local.awaitingPass){updateTurnCue('localStatus',false,'');return}
   $('localPlacement').classList.toggle('hide',!placing);
@@ -374,7 +383,7 @@ function renderLocal(){
   }else{
     const current=local.turn,viewer=ai?0:current,outgoing=local.shots.filter(s=>s.by===viewer),incoming=local.shots.filter(s=>s.by!==viewer),guesses=local.guesses[viewer];
     const humanTurn=!done&&!local.busy;
-    const label=done?(local.winner===0?(ai?'🏆 你赢了！':'🏆 玩家1获胜！'):(ai?'电脑获胜':'🏆 玩家2获胜')):(ai?(local.busy?'⏳ 电脑正在攻击':local.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击'):(local.guessMode?`✏️ 玩家${current+1}正在标记推测`:`🎯 玩家${current+1}攻击`));
+    const label=done?(local.winner===0?(ai?'🏆 你赢了！':'🏆 玩家1获胜！'):(ai?'电脑获胜':'🏆 玩家2获胜')):(ai?(local.busy?'🧠 电脑正在分析棋盘':local.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击'):(local.guessMode?`✏️ 玩家${current+1}正在标记推测`:`🎯 玩家${current+1}攻击`));
     $('localStatus').textContent=`${label} · 玩家1击毁 ${killsBy(0)}/${local.count}，${ai?'电脑':'玩家2'}击毁 ${killsBy(1)}/${local.count}`;
     $('localGuessToggle').classList.toggle('active',local.guessMode);$('localGuessToggle').textContent=`✏️ 推测标记：${local.guessMode?'开':'关'}`;
     $('localGuessToggle').setAttribute('aria-pressed',String(local.guessMode));
@@ -419,7 +428,7 @@ function localAttack(cell){
   if(local.phase==='done'){renderLocal();return}
   if(local.mode==='same'){beginHandoff(`请交给玩家${local.turn+1}`,`玩家${attacker+1}已完成攻击，结果已记录。下一位玩家拿到手机后继续。`,renderLocal);return}
   local.busy=true;renderLocal();
-  setTimeout(()=>{const used=new Set(local.shots.filter(s=>s.by===1).map(s=>s.cell));const choices=Array.from({length:100},(_,i)=>i).filter(i=>!used.has(i));const cell=choices[Math.floor(Math.random()*choices.length)];resolveShot(1,cell);local.busy=false;renderLocal()},550);
+  setTimeout(()=>{const publicResults=local.shots.filter(s=>s.by===1).map(({cell,result})=>({cell,result})),cell=chooseAiTarget(publicResults,local.count,local.difficulty);if(cell!==null)resolveShot(1,cell);local.busy=false;renderLocal()},650);
 }
 $('startLocal').onclick=()=>{try{startLocal()}catch(e){message(e.message)}};
 $('localUndo').onclick=()=>{const planes=local.players[local.placingSeat].planes;local.draftPlane=null;local.draftIndex=-1;planes.pop();renderLocal()};

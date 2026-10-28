@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {shape,validPlanes,playerView,requestRematch} from '../src/worker.js';
+import {shape,validPlanes,playerView,requestRematch,settleAfterShot} from '../src/worker.js';
 
 test('plane shape has ten unique cells and preserves the head',()=>{
   const result=shape([4,4],'U');
@@ -34,7 +34,7 @@ test('player view never exposes opponent layout before game end',()=>{
 });
 
 test('both players can start the next round in the same room',()=>{
-  const state={room:'123456',count:3,round:1,status:'done',turn:0,winner:0,updated:1,shots:[{by:0,cell:22,result:'kill'}],players:[
+  const state={room:'123456',count:3,round:1,status:'done',turn:0,winner:0,finalChance:true,updated:1,shots:[{by:0,cell:22,result:'kill'}],players:[
     {token:'a',name:'玩家1',ready:true,planes:[{x:2,y:4,dir:'R'}],kills:3,rematch:false},
     {token:'b',name:'玩家2',ready:true,planes:[{x:7,y:5,dir:'L'}],kills:1,rematch:false}
   ]};
@@ -45,6 +45,7 @@ test('both players can start the next round in the same room',()=>{
   assert.equal(state.round,2);
   assert.equal(state.status,'waiting');
   assert.equal(state.winner,null);
+  assert.equal(state.finalChance,false);
   assert.equal(state.turn,0);
   assert.deepEqual(state.shots,[]);
   assert.deepEqual(state.players.map(({token})=>token),['a','b']);
@@ -54,4 +55,34 @@ test('both players can start the next round in the same room',()=>{
     assert.equal(player.kills,0);
     assert.deepEqual(player.planes,[]);
   }
+});
+
+test('second player gets one final shot and can force a draw',()=>{
+  const state={count:3,status:'playing',turn:0,winner:null,finalChance:false,players:[{kills:3},{kills:2}]};
+  settleAfterShot(state,0);
+  assert.equal(state.status,'playing');
+  assert.equal(state.turn,1);
+  assert.equal(state.finalChance,true);
+  assert.equal(state.winner,null);
+
+  state.players[1].kills=3;
+  settleAfterShot(state,1);
+  assert.equal(state.status,'done');
+  assert.equal(state.winner,'draw');
+  assert.equal(state.finalChance,false);
+});
+
+test('first player wins if the final reply does not complete all kills',()=>{
+  const state={count:3,status:'playing',turn:1,winner:null,finalChance:true,players:[{kills:3},{kills:1}]};
+  settleAfterShot(state,1);
+  assert.equal(state.status,'done');
+  assert.equal(state.winner,0);
+  assert.equal(state.finalChance,false);
+});
+
+test('second player wins normally when finishing before a final-chance state',()=>{
+  const state={count:3,status:'playing',turn:1,winner:null,finalChance:false,players:[{kills:2},{kills:3}]};
+  settleAfterShot(state,1);
+  assert.equal(state.status,'done');
+  assert.equal(state.winner,1);
 });

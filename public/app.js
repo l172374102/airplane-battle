@@ -300,7 +300,7 @@ function renderOnline(){
   $('onlineReady').disabled=online.planes.length!==state.count||!!online.draftPlane;$('onlineReady').textContent=`完成布阵（${online.planes.length}/${state.count}）`;
   syncPlacementControls('online',online.planes,online,state.count);
   const myTurn=playing&&state.turn===online.seat;
-  const label=done?(me.rematch&&!other.rematch?'✓ 已确认再来一局，等待对方':state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(myTurn?(online.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击：点击目标坐标'):'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
+  const label=done?(me.rematch&&!other.rematch?'✓ 已确认再来一局，等待对方':state.winner==='draw'?'🤝 本局平局！':state.winner===online.seat?'🏆 你赢了！':'对方获胜'):playing?(state.finalChance?(myTurn?'⚡ 最后一击：完成全部击毁即可追平':'⏳ 后手玩家正在进行最后一击'):myTurn?(online.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击：点击目标坐标'):'⏳ 等待对方攻击'):(online.ready?'已准备，等待对方完成布阵':other.joined?'请放置飞机并点击完成布阵':'等待另一位玩家加入房间');
   $('onlineStatus').textContent=`${label} · 机头击毁 ${me.kills}/${state.count}，对方击毁 ${other.kills}/${state.count}`;
   const myShots=state.shots||[],incoming=state.incoming||[];
   $('onlineAttackHeader').classList.toggle('hide',!playing);
@@ -331,7 +331,7 @@ function renderOnline(){
   }
   renderHistory('onlineMyHistory',myShots);renderHistory('onlineTheirHistory',incoming);
   $('onlineReveal').classList.toggle('hide',!done);if(done&&state.opponentPlanes){grid('onlineEnemyBoard',(el,n)=>{paintOwnDamage(el,n,state.opponentPlanes,myShots);el.disabled=true});renderPlaneOutlines('onlineEnemyBoard',state.opponentPlanes,{destroyed:destroyedPlaneIds(myShots)})}
-  $('onlineResult').textContent=done?'游戏结束：双方完整攻击历史已保留，对方布局已公开。':playing?'橙色=命中机身，红色=击毁机头，灰色=未击中。':'';
+  $('onlineResult').textContent=done?`${state.winner==='draw'?'双方同轮完成全部击毁，本局平局。':'游戏结束。'} 双方完整攻击历史已保留，对方布局已公开。`:playing?'橙色=命中机身，红色=击毁机头，灰色=未击中。':'';
   $('onlineRematchRow').classList.toggle('hide',!done);
   $('onlineRematch').disabled=!done||online.busy||me.rematch;
   $('onlineRematch').textContent=me.rematch?'✓ 已确认再来一局':'↻ 再来一局';
@@ -369,11 +369,14 @@ function resolveShot(attacker,cell){
   const target=local.players[1-attacker];let result='miss',planeId=-1;
   for(let i=0;i<target.planes.length;i++){const s=shape(target.planes[i]);if(s.cells.includes(cell)){planeId=i;result=s.head===cell?'kill':'hit';break}}
   local.shots.push({by:attacker,cell,result,planeId:result==='kill'?planeId:undefined,n:local.shots.length+1});
-  if(killsBy(attacker)===local.count){local.phase='done';local.winner=attacker}else local.turn=1-attacker;
+  if(local.finalChance){local.phase='done';local.winner=killsBy(1)===local.count?'draw':0;local.finalChance=false;return}
+  if(killsBy(attacker)!==local.count){local.turn=1-attacker;return}
+  if(attacker===0){local.finalChance=true;local.turn=1;return}
+  local.phase='done';local.winner=1;
 }
 function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;local.guessDraftPlane=null;local.guessDraftIndex=-1;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
 function createLocalState(mode,count,difficulty,round=1){
-  return {mode,count,difficulty,round,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+  return {mode,count,difficulty,round,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,finalChance:false,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
 }
 function startLocal(){
   const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value),difficulty=mode==='ai'?$('aiDifficulty').value:null;
@@ -408,7 +411,7 @@ function renderLocal(){
   }else{
     const current=local.turn,viewer=ai?0:current,outgoing=local.shots.filter(s=>s.by===viewer),incoming=local.shots.filter(s=>s.by!==viewer),guesses=local.guesses[viewer];
     const humanTurn=!done&&!local.busy;
-    const label=done?(local.winner===0?(ai?'🏆 你赢了！':'🏆 玩家1获胜！'):(ai?'电脑获胜':'🏆 玩家2获胜')):(ai?(local.busy?'🧠 电脑正在分析棋盘':local.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击'):(local.guessMode?`✏️ 玩家${current+1}正在标记推测`:`🎯 玩家${current+1}攻击`));
+    const label=done?(local.winner==='draw'?'🤝 本局平局！':local.winner===0?(ai?'🏆 你赢了！':'🏆 玩家1获胜！'):(ai?'电脑获胜':'🏆 玩家2获胜')):(local.finalChance?(ai?'⚡ 电脑正在进行最后一击':`⚡ 玩家${current+1}最后一击：完成全部击毁即可追平`):ai?(local.busy?'🧠 电脑正在分析棋盘':local.guessMode?'✏️ 推测标记中：关闭后可发起攻击':'🎯 轮到你攻击'):(local.guessMode?`✏️ 玩家${current+1}正在标记推测`:`🎯 玩家${current+1}攻击`));
     $('localStatus').textContent=`${label} · 玩家1击毁 ${killsBy(0)}/${local.count}，${ai?'电脑':'玩家2'}击毁 ${killsBy(1)}/${local.count}`;
     $('localGuessToggle').classList.toggle('active',local.guessMode);$('localGuessToggle').textContent=`✏️ 推测标记：${local.guessMode?'开':'关'}`;
     $('localGuessToggle').setAttribute('aria-pressed',String(local.guessMode));

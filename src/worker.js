@@ -47,7 +47,7 @@ export function validPlanes(planes,count){
 export function playerView(state,seat){
   const me=state.players[seat],other=state.players[1-seat];
   return {
-    room:state.room,count:state.count,round:state.round||1,status:state.status,seat,turn:state.turn,winner:state.winner,
+    room:state.room,count:state.count,round:state.round||1,status:state.status,seat,turn:state.turn,winner:state.winner,finalChance:!!state.finalChance,
     players:state.players.map(p=>({joined:!!p.token,ready:p.ready,name:p.name,kills:p.kills,rematch:!!p.rematch})),
     myPlanes:me.planes,
     shots:state.shots.filter(shot=>shot.by===seat),
@@ -61,11 +61,20 @@ export function requestRematch(state,seat){
   state.players[seat].rematch=true;
   if(!state.players.every(player=>player.rematch))return false;
   state.round=(state.round||1)+1;
-  state.status='waiting';state.turn=0;state.winner=null;state.shots=[];
+  state.status='waiting';state.turn=0;state.winner=null;state.finalChance=false;state.shots=[];
   for(const player of state.players){
     player.ready=false;player.planes=[];player.kills=0;player.rematch=false;
   }
   return true;
+}
+export function settleAfterShot(state,seat){
+  if(state.finalChance){
+    state.status='done';state.winner=state.players[1].kills===state.count?'draw':0;state.finalChance=false;
+    return;
+  }
+  if(state.players[seat].kills!==state.count){state.turn=1-seat;return}
+  if(seat===0){state.finalChance=true;state.turn=1;return}
+  state.status='done';state.winner=1;
 }
 
 export default {
@@ -112,7 +121,7 @@ export class GameRoom {
     if(action==='init'){
       if(state)return err('房间已存在',409);
       const accessToken=token();
-      state={room:body.room,count:body.count,round:1,status:'waiting',turn:0,winner:null,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0,rematch:false},{token:null,name:'玩家2',ready:false,planes:[],kills:0,rematch:false}],shots:[],updated:Date.now()};
+      state={room:body.room,count:body.count,round:1,status:'waiting',turn:0,winner:null,finalChance:false,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0,rematch:false},{token:null,name:'玩家2',ready:false,planes:[],kills:0,rematch:false}],shots:[],updated:Date.now()};
       await this.ctx.storage.put('game',state);
       return send({room:state.room,seat:0,token:accessToken},201);
     }
@@ -157,7 +166,7 @@ export class GameRoom {
       }
       if(result==='kill')state.players[seat].kills++;
       state.shots.push({by:seat,cell,result,planeId:result==='kill'?planeId:undefined,n:state.shots.length+1});
-      if(state.players[seat].kills===state.count){state.status='done';state.winner=seat}else state.turn=1-seat;
+      settleAfterShot(state,seat);
       state.updated=Date.now();await this.ctx.storage.put('game',state);return send(playerView(state,seat));
     }
     return err('未知操作',404);

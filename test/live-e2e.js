@@ -35,18 +35,25 @@ assert.equal(privateView.allShots,undefined);
 assert.equal(JSON.stringify(privateView).includes(joined.token),false);
 
 await post('shot',{room:created.room,token:created.token,cell:21});
-await post('shot',{room:created.room,token:joined.token,cell:99});
+await post('shot',{room:created.room,token:joined.token,cell:28});
 await post('shot',{room:created.room,token:created.token,cell:71});
-await post('shot',{room:created.room,token:joined.token,cell:98});
-const finished=await post('shot',{room:created.room,token:created.token,cell:17});
+await post('shot',{room:created.room,token:joined.token,cell:78});
+const finalChance=await post('shot',{room:created.room,token:created.token,cell:17});
+assert.equal(finalChance.status,'playing');
+assert.equal(finalChance.turn,1);
+assert.equal(finalChance.finalChance,true);
+assert.equal(finalChance.opponentPlanes,undefined);
+assert.equal(finalChance.allShots,undefined);
+
+const finished=await post('shot',{room:created.room,token:joined.token,cell:12});
 assert.equal(finished.status,'done');
-assert.equal(finished.winner,0);
-assert.deepEqual(finished.opponentPlanes,p2Planes);
-assert.equal(finished.allShots.length,5);
+assert.equal(finished.winner,'draw');
+assert.deepEqual(finished.opponentPlanes,p1Planes);
+assert.equal(finished.allShots.length,6);
 
 const loserView=await post('state',{room:created.room,token:joined.token});
 assert.deepEqual(loserView.opponentPlanes,p1Planes);
-assert.equal(loserView.allShots.length,5);
+assert.equal(loserView.allShots.length,6);
 
 const denied=await fetch(`${base}/api/create`,{method:'OPTIONS',headers:{origin:'https://example.com','access-control-request-method':'POST','access-control-request-headers':'content-type'}});
 assert.equal(denied.status,403);

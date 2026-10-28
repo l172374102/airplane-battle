@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b1425">
   <meta name="api-base" content="https://airplane-battle-online.airplane-battle.workers.dev">
   <title>✈️ 空战棋盘</title>
-  <link rel="stylesheet" href="./styles.css?v=20261028-2">
+  <link rel="stylesheet" href="./styles.css?v=20261028-3">
 </head>
 <body>
 <main class="wrap">
@@ -51,22 +51,22 @@
     <div class="notice" id="onlineStatus" role="status" aria-live="polite"></div>
     <div class="row" id="shareRow"><button id="share">分享邀请链接</button><strong id="roomText"></strong></div>
     <div id="onlinePlacement" class="hide">
-      <div class="row">新飞机机身延伸方向
-        <select id="onlineDir"><option value="U">↑ 向上</option><option value="R">→ 向右</option><option value="D">↓ 向下</option><option value="L">← 向左</option></select>
+      <div class="row">
         <button class="secondary" id="onlineRandom">随机布阵</button>
         <button class="secondary" id="onlineUndo">删除最后一架</button>
         <button id="onlineReady">完成布阵</button>
       </div>
       <div class="placement-editor">
-        <strong id="onlineSelection">点击飞机任意一格即可选中</strong>
+        <strong id="onlineSelection">点击棋盘设置第一架飞机的机头</strong>
         <div class="placement-actions">
           <button class="secondary" id="onlineRotateLeft" aria-label="选中飞机逆时针旋转">↺ 逆时针</button>
           <button class="secondary" id="onlineRotateRight" aria-label="选中飞机顺时针旋转">↻ 顺时针</button>
-          <button class="secondary" id="onlineMove">📍 移动机头</button>
-          <button class="ghost" id="onlineDelete">删除选中</button>
+          <button id="onlineConfirmPlane">✓ 确认此飞机</button>
+          <button class="secondary" id="onlineCancelPlane">取消调整</button>
+          <button class="ghost" id="onlineDelete">删除此飞机</button>
         </div>
       </div>
-      <div class="small">点击空格放置机头；点击飞机占用的任意格选中它，再旋转或移动。彩色弧线是每架飞机的轮廓。</div>
+      <div class="small">点击棋盘设置机头，默认机头向下。再次点击可移动机头，也可顺/逆时针旋转；轮廓非红色时才能确认。</div>
     </div>
     <div id="onlineAttackHeader" class="hide">
       <h3>对方棋盘 · 攻击与推测</h3>
@@ -100,22 +100,22 @@
     </div>
     <div id="localPlayArea">
       <div id="localPlacement" class="hide">
-        <div class="row">新飞机机身延伸方向
-          <select id="localDir"><option value="U">↑ 向上</option><option value="R">→ 向右</option><option value="D">↓ 向下</option><option value="L">← 向左</option></select>
+        <div class="row">
           <button class="secondary" id="localRandom">随机布阵</button>
           <button class="secondary" id="localUndo">删除最后一架</button>
           <button id="localReady">完成布阵</button>
         </div>
         <div class="placement-editor">
-          <strong id="localSelection">点击飞机任意一格即可选中</strong>
+          <strong id="localSelection">点击棋盘设置第一架飞机的机头</strong>
           <div class="placement-actions">
             <button class="secondary" id="localRotateLeft" aria-label="选中飞机逆时针旋转">↺ 逆时针</button>
             <button class="secondary" id="localRotateRight" aria-label="选中飞机顺时针旋转">↻ 顺时针</button>
-            <button class="secondary" id="localMove">📍 移动机头</button>
-            <button class="ghost" id="localDelete">删除选中</button>
+            <button id="localConfirmPlane">✓ 确认此飞机</button>
+            <button class="secondary" id="localCancelPlane">取消调整</button>
+            <button class="ghost" id="localDelete">删除此飞机</button>
           </div>
         </div>
-        <div class="small">点击空格放置机头；点击飞机占用的任意格选中它，再旋转或移动。同机模式布阵后会遮住棋盘再换手。</div>
+        <div class="small">点击棋盘设置机头，默认机头向下。再次点击可移动机头，也可顺/逆时针旋转；红色表示越界或重叠，不能确认。</div>
       </div>
       <div id="localAttackHeader" class="hide">
         <h3>对方棋盘 · 攻击与推测</h3>
@@ -146,6 +146,6 @@
 
   <p class="message" id="message" role="status" aria-live="polite"></p>
 </main>
-<script src="./app.js?v=20261028-2"></script>
+<script src="./app.js?v=20261028-3"></script>
 </body>
 </html>

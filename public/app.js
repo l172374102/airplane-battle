@@ -265,17 +265,27 @@ function showBoardExplosion(target,cell){
   for(let i=0;i<10;i++){const spark=document.createElement('i');spark.style.setProperty('--spark-angle',`${i*36}deg`);spark.style.setProperty('--spark-delay',`${(i%3)*24}ms`);burst.appendChild(spark)}
   board.appendChild(burst);burst.addEventListener('animationend',event=>{if(event.target===burst)burst.remove()});setTimeout(()=>burst.remove(),1400);
 }
+function showFullScreenExplosion(){
+  document.querySelector('.fullscreen-explosion')?.remove();document.body.classList.remove('screen-hit');
+  const blast=document.createElement('div');blast.className='fullscreen-explosion';blast.setAttribute('aria-hidden','true');
+  for(const [x,y,delay,scale] of [[50,50,0,1.35],[22,28,60,.8],[79,30,95,.88],[29,76,125,.72],[73,75,155,.82]]){
+    const fireball=document.createElement('b');fireball.className='fullscreen-fireball';fireball.style.setProperty('--fire-x',`${x}%`);fireball.style.setProperty('--fire-y',`${y}%`);fireball.style.setProperty('--fire-delay',`${delay}ms`);fireball.style.setProperty('--fire-scale',scale);fireball.style.setProperty('--fire-scale-end',(scale*1.55).toFixed(2));blast.appendChild(fireball);
+  }
+  for(let i=0;i<18;i++){const spark=document.createElement('i');spark.style.setProperty('--screen-angle',`${i*20}deg`);spark.style.setProperty('--screen-delay',`${(i%4)*22}ms`);blast.appendChild(spark)}
+  const finish=()=>{blast.remove();document.body.classList.remove('screen-hit')};document.body.appendChild(blast);document.body.classList.add('screen-hit');
+  if(document.visibilityState==='visible'&&navigator.vibrate)navigator.vibrate([120,45,220]);blast.addEventListener('animationend',event=>{if(event.target===blast)finish()});setTimeout(finish,1800);
+}
 function renderOnlineExplosions(state){
   const round=state.round||1,events=[];
-  for(const [kind,shots,target] of [['out',state.shots||[],'onlineBoard'],['in',state.incoming||[],'onlineOwnBoard']])shots.forEach((shot,index)=>{if(shot.result==='kill')events.push({key:`${round}:${kind}:${shot.n??index}:${shot.cell}`,target,cell:shot.cell})});
+  for(const [kind,shots,target] of [['out',state.shots||[],'onlineBoard'],['in',state.incoming||[],'onlineOwnBoard']])shots.forEach((shot,index)=>{if(shot.result==='kill')events.push({key:`${round}:${kind}:${shot.n??index}:${shot.cell}`,target,cell:shot.cell,full:kind==='in'})});
   if(online.killRound!==round||online.seenKillKeys===null){online.killRound=round;online.seenKillKeys=new Set(events.map(event=>event.key));return}
-  for(const event of events)if(!online.seenKillKeys.has(event.key))showBoardExplosion(event.target,event.cell);
+  for(const event of events)if(!online.seenKillKeys.has(event.key)){if(event.full)showFullScreenExplosion();else showBoardExplosion(event.target,event.cell)}
   online.seenKillKeys=new Set(events.map(event=>event.key));
 }
 function renderLocalExplosions(viewer,outgoing,incoming){
   if(!local.seenKillKeys)local.seenKillKeys=new Set();
-  const events=[];for(const [kind,shots,target] of [['out',outgoing,'localBoard'],['in',incoming,'localOwnBoard']])shots.forEach((shot,index)=>{if(shot.result==='kill')events.push({key:`${local.round||1}:${viewer}:${kind}:${shot.n??index}:${shot.cell}`,target,cell:shot.cell})});
-  for(const event of events)if(!local.seenKillKeys.has(event.key)){local.seenKillKeys.add(event.key);showBoardExplosion(event.target,event.cell)}
+  const events=[];for(const [kind,shots,target] of [['out',outgoing,'localBoard'],['in',incoming,'localOwnBoard']])shots.forEach((shot,index)=>{if(shot.result==='kill')events.push({key:`${local.round||1}:${viewer}:${kind}:${shot.n??index}:${shot.cell}`,target,cell:shot.cell,full:kind==='in'})});
+  for(const event of events)if(!local.seenKillKeys.has(event.key)){local.seenKillKeys.add(event.key);if(event.full)showFullScreenExplosion();else showBoardExplosion(event.target,event.cell)}
 }
 function renderOnlineChat(state){
   const root=$('onlineChatLog'),messages=state.messages||[],latest=messages[messages.length-1],lastId=Number(root.dataset.lastId||0);

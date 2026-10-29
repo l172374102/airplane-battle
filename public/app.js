@@ -268,10 +268,10 @@ function showBoardExplosion(target,cell){
 function showFullScreenExplosion(){
   document.querySelector('.fullscreen-explosion')?.remove();document.body.classList.remove('screen-hit');
   const blast=document.createElement('div');blast.className='fullscreen-explosion';blast.setAttribute('aria-hidden','true');
-  for(const [x,y,delay,scale] of [[50,50,0,1.35],[22,28,60,.8],[79,30,95,.88],[29,76,125,.72],[73,75,155,.82]]){
-    const fireball=document.createElement('b');fireball.className='fullscreen-fireball';fireball.style.setProperty('--fire-x',`${x}%`);fireball.style.setProperty('--fire-y',`${y}%`);fireball.style.setProperty('--fire-delay',`${delay}ms`);fireball.style.setProperty('--fire-scale',scale);fireball.style.setProperty('--fire-scale-end',(scale*1.55).toFixed(2));blast.appendChild(fireball);
+  const flames=[[8,0,180,.72],[24,0,180,1],[41,0,180,.82],[59,0,180,1.08],[76,0,180,.88],[93,0,180,.7],[8,100,0,.76],[25,100,0,1.04],[43,100,0,.84],[61,100,0,1.1],[79,100,0,.86],[94,100,0,.72],[0,22,90,.76],[0,51,90,1.02],[0,79,90,.78],[100,20,-90,.72],[100,49,-90,1.04],[100,78,-90,.8]];
+  for(const [index,[x,y,rotation,scale]] of flames.entries()){
+    const fireball=document.createElement('b');fireball.className='fullscreen-fireball';fireball.style.setProperty('--fire-x',`${x}%`);fireball.style.setProperty('--fire-y',`${y}%`);fireball.style.setProperty('--fire-rotate',`${rotation}deg`);fireball.style.setProperty('--fire-delay',`${(index%5)*24}ms`);fireball.style.setProperty('--fire-scale',scale);fireball.style.setProperty('--fire-scale-end',(scale*1.18).toFixed(2));blast.appendChild(fireball);
   }
-  for(let i=0;i<18;i++){const spark=document.createElement('i');spark.style.setProperty('--screen-angle',`${i*20}deg`);spark.style.setProperty('--screen-delay',`${(i%4)*22}ms`);blast.appendChild(spark)}
   const finish=()=>{blast.remove();document.body.classList.remove('screen-hit')};document.body.appendChild(blast);document.body.classList.add('screen-hit');
   if(document.visibilityState==='visible'&&navigator.vibrate)navigator.vibrate([120,45,220]);blast.addEventListener('animationend',event=>{if(event.target===blast)finish()});setTimeout(finish,1800);
 }

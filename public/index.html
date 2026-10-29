@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b1425">
   <meta name="api-base" content="https://airplane-battle-online.airplane-battle.workers.dev">
   <title>✈️ 空战棋盘</title>
-  <link rel="stylesheet" href="./styles.css?v=20261028-12">
+  <link rel="stylesheet" href="./styles.css?v=20261029-13">
 </head>
 <body>
 <main class="wrap">
@@ -87,19 +87,19 @@
         <button class="secondary" id="onlineGuessUndo">撤销推测</button>
         <button class="ghost" id="onlineGuessClear">清空推测</button>
       </div>
-      <div class="placement-editor guess-editor hide" id="onlineGuessEditor">
-        <strong id="onlineGuessSelection">点击棋盘设置第一架推测飞机的机头</strong>
-        <div class="placement-actions">
-          <button class="secondary" id="onlineGuessRotateLeft" aria-label="推测飞机逆时针旋转">↺ 逆时针</button>
-          <button class="secondary" id="onlineGuessRotateRight" aria-label="推测飞机顺时针旋转">↻ 顺时针</button>
-          <button id="onlineGuessConfirm">✓ 确认推测</button>
-          <button class="secondary" id="onlineGuessCancel">取消调整</button>
-          <button class="ghost" id="onlineGuessDelete">删除此推测</button>
-        </div>
-      </div>
-      <div class="small">开启后点击棋盘设置推测机头，默认向下；可移动、旋转并确认，也可点击已有推测重新调整。标记仅保存在本机。</div>
+      <div class="small">开启后点击棋盘设置推测机头，默认向下；调整按钮会出现在棋盘下方，不遮挡格子。也可点击已有推测重新调整，标记仅保存在本机。</div>
     </div>
     <div id="onlineBoard"></div>
+    <div class="placement-editor guess-editor guess-context-dock hide" id="onlineGuessEditor" role="group" aria-label="当前推测飞机调整">
+      <strong id="onlineGuessSelection">调整当前推测飞机</strong>
+      <div class="placement-actions">
+        <button class="secondary guess-rotate" id="onlineGuessRotateLeft" aria-label="推测飞机逆时针旋转">↺ 逆时针</button>
+        <button class="secondary guess-rotate" id="onlineGuessRotateRight" aria-label="推测飞机顺时针旋转">↻ 顺时针</button>
+        <button id="onlineGuessConfirm">✓ 确认推测</button>
+        <button class="secondary" id="onlineGuessCancel">取消调整</button>
+        <button class="ghost" id="onlineGuessDelete">删除此推测</button>
+      </div>
+    </div>
     <div id="onlineOwnPanel" class="board-panel hide">
       <h3>我的飞机 · 对方攻击位置</h3>
       <div class="small">灰色整机表示机头已被击毁；● 为机身中弹，× 为未击中。</div>
@@ -149,19 +149,19 @@
           <button class="secondary" id="localGuessUndo">撤销推测</button>
           <button class="ghost" id="localGuessClear">清空推测</button>
         </div>
-        <div class="placement-editor guess-editor hide" id="localGuessEditor">
-          <strong id="localGuessSelection">点击棋盘设置第一架推测飞机的机头</strong>
-          <div class="placement-actions">
-            <button class="secondary" id="localGuessRotateLeft" aria-label="推测飞机逆时针旋转">↺ 逆时针</button>
-            <button class="secondary" id="localGuessRotateRight" aria-label="推测飞机顺时针旋转">↻ 顺时针</button>
-            <button id="localGuessConfirm">✓ 确认推测</button>
-            <button class="secondary" id="localGuessCancel">取消调整</button>
-            <button class="ghost" id="localGuessDelete">删除此推测</button>
-          </div>
-        </div>
-        <div class="small">开启后点击棋盘设置推测机头，默认向下；可移动、旋转并确认，也可点击已有推测重新调整。</div>
+        <div class="small">开启后点击棋盘设置推测机头，默认向下；调整按钮会出现在棋盘下方，不遮挡格子，也可点击已有推测重新调整。</div>
       </div>
       <div id="localBoard"></div>
+      <div class="placement-editor guess-editor guess-context-dock hide" id="localGuessEditor" role="group" aria-label="当前推测飞机调整">
+        <strong id="localGuessSelection">调整当前推测飞机</strong>
+        <div class="placement-actions">
+          <button class="secondary guess-rotate" id="localGuessRotateLeft" aria-label="推测飞机逆时针旋转">↺ 逆时针</button>
+          <button class="secondary guess-rotate" id="localGuessRotateRight" aria-label="推测飞机顺时针旋转">↻ 顺时针</button>
+          <button id="localGuessConfirm">✓ 确认推测</button>
+          <button class="secondary" id="localGuessCancel">取消调整</button>
+          <button class="ghost" id="localGuessDelete">删除此推测</button>
+        </div>
+      </div>
       <div id="localOwnPanel" class="board-panel hide">
         <h3>我的飞机 · 对方攻击位置</h3>
         <div class="small">灰色整机表示机头已被击毁；● 为机身中弹，× 为未击中。</div>
@@ -185,6 +185,6 @@
   <p class="message" id="message" role="status" aria-live="polite"></p>
 </main>
 <div class="chat-danmaku-layer" id="chatDanmakuLayer" aria-hidden="true"></div>
-<script type="module" src="./app.js?v=20261028-12"></script>
+<script type="module" src="./app.js?v=20261029-13"></script>
 </body>
 </html>

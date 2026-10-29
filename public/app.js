@@ -220,8 +220,9 @@ function updateTurnCue(id,on,key){
   const el=$(id);el.classList.toggle('your-turn',on);
   if(on&&cueState[id]!==key){cueState[id]=key;if(document.visibilityState==='visible'&&navigator.vibrate)navigator.vibrate([120,60,120])}
   if(!on)cueState[id]=null;
+  const anyTurn=Object.values(cueState).some(Boolean);document.body.classList.toggle('turn-edge-glow',anyTurn);
   if(on)document.title='🎯 轮到你攻击 · 空战棋盘';
-  else if(!Object.values(cueState).some(Boolean))document.title='✈️ 空战棋盘';
+  else if(!anyTurn)document.title='✈️ 空战棋盘';
 }
 function onlineGuessKey(round=online.state?.round||1){return `airplane-online-guesses-${online.room}-${online.seat}-${round}`}
 function loadOnlineGuesses(){
@@ -243,8 +244,16 @@ function renderHistory(target,shots,empty='暂无记录'){
 function syncOnlineChatSend(){
   $('onlineChatSend').disabled=online.chatBusy||!$('onlineChatInput').value.trim();
 }
+function showChatDanmaku(chat){
+  const layer=$('chatDanmakuLayer');if(!layer||$('onlineGame').classList.contains('hide'))return;
+  const bubble=document.createElement('div');bubble.className=`chat-danmaku ${chat.by===online.seat?'mine':'theirs'}`;
+  bubble.style.setProperty('--offset',`${((chat.id*47)%7-3)*18}px`);
+  bubble.textContent=`${chat.by===online.seat?'我':`玩家${chat.by+1}`}：${chat.text}`;layer.appendChild(bubble);
+  bubble.addEventListener('animationend',()=>bubble.remove(),{once:true});setTimeout(()=>bubble.remove(),7000);
+}
 function renderOnlineChat(state){
   const root=$('onlineChatLog'),messages=state.messages||[],latest=messages[messages.length-1],lastId=Number(root.dataset.lastId||0);
+  const initialized=root.dataset.initialized==='1',newMessages=initialized?messages.filter(chat=>chat.id>lastId):[];
   const nearBottom=root.scrollHeight-root.scrollTop-root.clientHeight<36,shouldScroll=!lastId||nearBottom||(latest?.id!==lastId&&latest?.by===online.seat);
   root.innerHTML='';
   if(!messages.length){const empty=document.createElement('div');empty.className='chat-empty';empty.textContent='还没有消息，打个招呼吧';root.appendChild(empty)}
@@ -256,12 +265,14 @@ function renderOnlineChat(state){
     const bubble=document.createElement('div');bubble.className='chat-bubble';bubble.textContent=chat.text;
     item.append(meta,bubble);root.appendChild(item);
   }
-  root.dataset.lastId=String(latest?.id||0);if(shouldScroll)requestAnimationFrame(()=>{root.scrollTop=root.scrollHeight});
+  root.dataset.lastId=String(latest?.id||0);root.dataset.initialized='1';if(shouldScroll)requestAnimationFrame(()=>{root.scrollTop=root.scrollHeight});
+  newMessages.forEach((chat,index)=>setTimeout(()=>showChatDanmaku(chat),index*220));
   $('onlineChatHint').textContent=state.players[1-online.seat].joined?'聊天记录会在同一房间的后续局中保留。':'等待对方加入时也可以先留言。';
   syncOnlineChatSend();
 }
 function showHome(){
   $('home').classList.remove('hide');$('onlineGame').classList.add('hide');$('localGame').classList.add('hide');message('');
+  $('chatDanmakuLayer').replaceChildren();
   updateTurnCue('onlineStatus',false,'');updateTurnCue('localStatus',false,'');
   if(timer){clearInterval(timer);timer=null}
 }
@@ -293,7 +304,7 @@ async function api(action,data={}){
 function inviteUrl(room){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('room',room);return url.toString()}
 function onlineSession(session){
   online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.chatBusy=false;online.guessMode=false;online.guesses=[];online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;
-  $('onlineChatInput').value='';$('onlineChatLog').dataset.lastId='0';
+  $('onlineChatInput').value='';$('onlineChatLog').dataset.lastId='0';$('onlineChatLog').dataset.initialized='0';$('chatDanmakuLayer').replaceChildren();
   localStorage.setItem(sessionKey,JSON.stringify({room:online.room,token:online.token,seat:online.seat}));
   const url=new URL(location.href);url.search='';url.searchParams.set('room',online.room);history.replaceState(null,'',url);
   $('home').classList.add('hide');$('onlineGame').classList.remove('hide');$('localGame').classList.add('hide');
@@ -316,7 +327,7 @@ function renderOnline(){
   const state=online.state;if(!state)return;
   const players=state.players,playing=state.status==='playing',done=state.status==='done',me=players[online.seat],other=players[1-online.seat];
   if(!playing&&online.guessDraftPlane){online.guessDraftPlane=null;online.guessDraftIndex=-1;online.guessMode=false}
-  $('onlineHeading').textContent=`房间 ${online.room} · ${online.seat===0?'玩家1':'玩家2'} · 第${state.round||1}局`;$('roomText').textContent=`房间号：${online.room}`;
+  $('onlineHeading').textContent=`房间 ${online.room} · ${online.seat===0?'玩家1':'玩家2'} · 第${state.round||1}局 · 玩家${(state.firstSeat??0)+1}先手`;$('roomText').textContent=`房间号：${online.room}`;
   $('shareRow').classList.toggle('hide',state.status!=='waiting');$('onlinePlacement').classList.toggle('hide',online.ready||state.status!=='waiting');
   $('onlineReady').disabled=online.planes.length!==state.count||!!online.draftPlane;$('onlineReady').textContent=`完成布阵（${online.planes.length}/${state.count}）`;
   syncPlacementControls('online',online.planes,online,state.count);
@@ -399,14 +410,16 @@ function resolveShot(attacker,cell){
   const target=local.players[1-attacker];let result='miss',planeId=-1;
   for(let i=0;i<target.planes.length;i++){const s=shape(target.planes[i]);if(s.cells.includes(cell)){planeId=i;result=s.head===cell?'kill':'hit';break}}
   local.shots.push({by:attacker,cell,result,planeId:result==='kill'?planeId:undefined,n:local.shots.length+1});
-  if(local.finalChance){local.phase='done';local.winner=killsBy(1)===local.count?'draw':0;local.finalChance=false;return}
+  const firstSeat=local.firstSeat??0,secondSeat=1-firstSeat;
+  if(local.finalChance){local.phase='done';local.winner=killsBy(secondSeat)===local.count?'draw':firstSeat;local.finalChance=false;return}
   if(killsBy(attacker)!==local.count){local.turn=1-attacker;return}
-  if(attacker===0){local.finalChance=true;local.turn=1;return}
-  local.phase='done';local.winner=1;
+  if(attacker===firstSeat){local.finalChance=true;local.turn=secondSeat;return}
+  local.phase='done';local.winner=secondSeat;
 }
 function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;local.guessDraftPlane=null;local.guessDraftIndex=-1;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
 function createLocalState(mode,count,difficulty,round=1){
-  return {mode,count,difficulty,round,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],turn:0,winner:null,finalChance:false,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+  const firstSeat=mode==='same'?(round-1)%2:0;
+  return {mode,count,difficulty,round,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],firstSeat,turn:firstSeat,winner:null,finalChance:false,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
 }
 function startLocal(){
   const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value),difficulty=mode==='ai'?$('aiDifficulty').value:null;
@@ -476,8 +489,8 @@ function localReady(){
   if(local.draftPlane)return;
   if(local.mode==='same'&&local.placingSeat===0){local.placingSeat=1;local.draftPlane=null;local.draftIndex=-1;beginHandoff('请交给玩家2','棋盘已经遮住。玩家2拿到手机后点击继续，独立完成布阵。',()=>{local.phase='placing';renderLocal()});return}
   local.draftPlane=null;local.draftIndex=-1;
-  local.phase='playing';local.turn=0;
-  if(local.mode==='same')beginHandoff('请交给玩家1','双方布阵完成。玩家1拿到手机后点击继续并开始攻击。',renderLocal);else renderLocal();
+  local.phase='playing';local.turn=local.firstSeat??0;
+  if(local.mode==='same')beginHandoff(`请交给玩家${local.turn+1}`,`双方布阵完成。本局由玩家${local.turn+1}先攻，拿到手机后点击继续。`,renderLocal);else renderLocal();
 }
 function localAttack(cell){
   if(local.phase!=='playing'||local.busy||local.guessMode)return;

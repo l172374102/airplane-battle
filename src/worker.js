@@ -47,7 +47,7 @@ export function validPlanes(planes,count){
 export function playerView(state,seat){
   const me=state.players[seat],other=state.players[1-seat];
   return {
-    room:state.room,count:state.count,round:state.round||1,status:state.status,seat,turn:state.turn,winner:state.winner,finalChance:!!state.finalChance,
+    room:state.room,count:state.count,round:state.round||1,status:state.status,seat,turn:state.turn,firstSeat:Number.isInteger(state.firstSeat)?state.firstSeat:0,winner:state.winner,finalChance:!!state.finalChance,
     players:state.players.map(p=>({joined:!!p.token,ready:p.ready,name:p.name,kills:p.kills,rematch:!!p.rematch})),
     myPlanes:me.planes,
     shots:state.shots.filter(shot=>shot.by===seat),
@@ -62,20 +62,22 @@ export function requestRematch(state,seat){
   state.players[seat].rematch=true;
   if(!state.players.every(player=>player.rematch))return false;
   state.round=(state.round||1)+1;
-  state.status='waiting';state.turn=0;state.winner=null;state.finalChance=false;state.shots=[];
+  state.firstSeat=(state.round-1)%2;
+  state.status='waiting';state.turn=state.firstSeat;state.winner=null;state.finalChance=false;state.shots=[];
   for(const player of state.players){
     player.ready=false;player.planes=[];player.kills=0;player.rematch=false;
   }
   return true;
 }
 export function settleAfterShot(state,seat){
+  const firstSeat=Number.isInteger(state.firstSeat)?state.firstSeat:0,secondSeat=1-firstSeat;
   if(state.finalChance){
-    state.status='done';state.winner=state.players[1].kills===state.count?'draw':0;state.finalChance=false;
+    state.status='done';state.winner=state.players[secondSeat].kills===state.count?'draw':firstSeat;state.finalChance=false;
     return;
   }
   if(state.players[seat].kills!==state.count){state.turn=1-seat;return}
-  if(seat===0){state.finalChance=true;state.turn=1;return}
-  state.status='done';state.winner=1;
+  if(seat===firstSeat){state.finalChance=true;state.turn=secondSeat;return}
+  state.status='done';state.winner=secondSeat;
 }
 export function normalizeChatText(value){
   if(typeof value!=='string')return null;
@@ -134,7 +136,7 @@ export class GameRoom {
     if(action==='init'){
       if(state)return err('房间已存在',409);
       const accessToken=token();
-      state={room:body.room,count:body.count,round:1,status:'waiting',turn:0,winner:null,finalChance:false,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0,rematch:false},{token:null,name:'玩家2',ready:false,planes:[],kills:0,rematch:false}],shots:[],messages:[],nextMessageId:0,updated:Date.now()};
+      state={room:body.room,count:body.count,round:1,status:'waiting',firstSeat:0,turn:0,winner:null,finalChance:false,players:[{token:accessToken,name:'玩家1',ready:false,planes:[],kills:0,rematch:false},{token:null,name:'玩家2',ready:false,planes:[],kills:0,rematch:false}],shots:[],messages:[],nextMessageId:0,updated:Date.now()};
       await this.ctx.storage.put('game',state);
       return send({room:state.room,seat:0,token:accessToken},201);
     }

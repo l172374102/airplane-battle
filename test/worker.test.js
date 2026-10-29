@@ -46,7 +46,8 @@ test('both players can start the next round in the same room',()=>{
   assert.equal(state.status,'waiting');
   assert.equal(state.winner,null);
   assert.equal(state.finalChance,false);
-  assert.equal(state.turn,0);
+  assert.equal(state.firstSeat,1);
+  assert.equal(state.turn,1);
   assert.deepEqual(state.shots,[]);
   assert.deepEqual(state.messages,[{id:1,by:0,text:'再来一局',at:1}]);
   assert.deepEqual(state.players.map(({token})=>token),['a','b']);
@@ -86,6 +87,18 @@ test('second player wins normally when finishing before a final-chance state',()
   settleAfterShot(state,1);
   assert.equal(state.status,'done');
   assert.equal(state.winner,1);
+});
+
+test('player 2 starts round two and player 1 gets the final reply',()=>{
+  const state={count:3,round:2,firstSeat:1,status:'playing',turn:1,winner:null,finalChance:false,players:[{kills:2},{kills:3}]};
+  settleAfterShot(state,1);
+  assert.equal(state.status,'playing');
+  assert.equal(state.turn,0);
+  assert.equal(state.finalChance,true);
+  state.players[0].kills=3;
+  settleAfterShot(state,0);
+  assert.equal(state.status,'done');
+  assert.equal(state.winner,'draw');
 });
 
 test('chat messages are normalized and invalid lengths are rejected',()=>{

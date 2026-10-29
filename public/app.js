@@ -6,7 +6,7 @@ const apiBase=(document.querySelector('meta[name="api-base"]')?.content||'').rep
 const sessionKey='airplane-online-session-v2';
 let activeMode='online';
 let timer=null;
-let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,chatBusy:false,guesses:[],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+let online={room:'',token:'',seat:-1,planes:[],state:null,ready:false,busy:false,chatBusy:false,guesses:[],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1,seenKillKeys:null,killRound:0};
 let local=null;
 const cueState={};
 
@@ -258,6 +258,25 @@ function showChatDanmaku(chat){
   bubble.textContent=`${chat.by===online.seat?'我':`玩家${chat.by+1}`}：${chat.text}`;layer.appendChild(bubble);
   bubble.addEventListener('animationend',()=>bubble.remove(),{once:true});setTimeout(()=>bubble.remove(),7000);
 }
+function showBoardExplosion(target,cell){
+  const board=$(target)?.querySelector('.board'),cellEl=board?.querySelectorAll('.cell')[cell];if(!board||!cellEl)return;
+  const burst=document.createElement('div');burst.className='head-explosion';burst.setAttribute('aria-hidden','true');
+  const size=Math.max(72,cellEl.offsetWidth*3.1);burst.style.left=`${cellEl.offsetLeft+cellEl.offsetWidth/2}px`;burst.style.top=`${cellEl.offsetTop+cellEl.offsetHeight/2}px`;burst.style.setProperty('--boom-size',`${size}px`);
+  for(let i=0;i<10;i++){const spark=document.createElement('i');spark.style.setProperty('--spark-angle',`${i*36}deg`);spark.style.setProperty('--spark-delay',`${(i%3)*24}ms`);burst.appendChild(spark)}
+  board.appendChild(burst);burst.addEventListener('animationend',event=>{if(event.target===burst)burst.remove()});setTimeout(()=>burst.remove(),1400);
+}
+function renderOnlineExplosions(state){
+  const round=state.round||1,events=[];
+  for(const [kind,shots,target] of [['out',state.shots||[],'onlineBoard'],['in',state.incoming||[],'onlineOwnBoard']])shots.forEach((shot,index)=>{if(shot.result==='kill')events.push({key:`${round}:${kind}:${shot.n??index}:${shot.cell}`,target,cell:shot.cell})});
+  if(online.killRound!==round||online.seenKillKeys===null){online.killRound=round;online.seenKillKeys=new Set(events.map(event=>event.key));return}
+  for(const event of events)if(!online.seenKillKeys.has(event.key))showBoardExplosion(event.target,event.cell);
+  online.seenKillKeys=new Set(events.map(event=>event.key));
+}
+function renderLocalExplosions(viewer,outgoing,incoming){
+  if(!local.seenKillKeys)local.seenKillKeys=new Set();
+  const events=[];for(const [kind,shots,target] of [['out',outgoing,'localBoard'],['in',incoming,'localOwnBoard']])shots.forEach((shot,index)=>{if(shot.result==='kill')events.push({key:`${local.round||1}:${viewer}:${kind}:${shot.n??index}:${shot.cell}`,target,cell:shot.cell})});
+  for(const event of events)if(!local.seenKillKeys.has(event.key)){local.seenKillKeys.add(event.key);showBoardExplosion(event.target,event.cell)}
+}
 function renderOnlineChat(state){
   const root=$('onlineChatLog'),messages=state.messages||[],latest=messages[messages.length-1],lastId=Number(root.dataset.lastId||0);
   const initialized=root.dataset.initialized==='1',newMessages=initialized?messages.filter(chat=>chat.id>lastId):[];
@@ -310,7 +329,7 @@ async function api(action,data={}){
 }
 function inviteUrl(room){const url=new URL(location.href);url.search='';url.hash='';url.searchParams.set('room',room);return url.toString()}
 function onlineSession(session){
-  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.chatBusy=false;online.guessMode=false;online.guesses=[];online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;
+  online.room=session.room;online.token=session.token;online.seat=session.seat;online.planes=[];online.state=null;online.ready=false;online.busy=false;online.chatBusy=false;online.guessMode=false;online.guesses=[];online.draftPlane=null;online.draftIndex=-1;online.guessDraftPlane=null;online.guessDraftIndex=-1;online.seenKillKeys=null;online.killRound=0;
   $('onlineChatInput').value='';$('onlineChatLog').dataset.lastId='0';$('onlineChatLog').dataset.initialized='0';$('chatDanmakuLayer').replaceChildren();
   localStorage.setItem(sessionKey,JSON.stringify({room:online.room,token:online.token,seat:online.seat}));
   const url=new URL(location.href);url.search='';url.searchParams.set('room',online.room);history.replaceState(null,'',url);
@@ -358,7 +377,7 @@ function renderOnline(){
       paintGuesses(el,n,guessView.visible);const alreadyShot=paintShots(el,n,myShots);if(playing&&online.guessMode&&online.guessDraftPlane)paintDraftPlane(el,n,online.guessDraftPlane,guessView.valid,true);
       if(playing&&online.guessMode){el.onclick=()=>handleGuessCell(online.guesses,online,state.count,n,x,y,renderOnline);return}
       if(alreadyShot){el.disabled=true;return}
-      el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('shot',{cell:n}));renderOnline()}catch(e){message(e.message)}finally{online.busy=false;renderOnline()}};
+      el.disabled=done||!myTurn;el.onclick=async()=>{if(online.busy)return;online.busy=true;try{applyOnlineState(await api('shot',{cell:n}))}catch(e){message(e.message)}finally{online.busy=false;renderOnline()}};
     });
     renderPlaneOutlines('onlineBoard',guessView.visible,{guess:true});
     if(playing&&online.guessMode&&online.guessDraftPlane)renderPlaneOutlines('onlineBoard',[online.guessDraftPlane],{guess:true,draft:true,invalid:!guessView.valid,allowInvalid:true});
@@ -377,6 +396,7 @@ function renderOnline(){
   $('onlineRematch').disabled=!done||online.busy||me.rematch;
   $('onlineRematch').textContent=me.rematch?'✓ 已确认再来一局':'↻ 再来一局';
   $('onlineRematchText').textContent=me.rematch&&!other.rematch?'等待对方确认…':!me.rematch&&other.rematch?'对方已确认，点击即可开始下一局':'双方确认后在原房间重新布阵';
+  renderOnlineExplosions(state);
 }
 async function refreshOnline(){
   if(!online.token)return;
@@ -427,7 +447,7 @@ function resolveShot(attacker,cell){
 function beginHandoff(title,text,next){local.awaitingPass=true;local.handoffNext=next;local.guessMode=false;local.guessDraftPlane=null;local.guessDraftIndex=-1;$('localStatus').textContent=`📱 ${title}`;$('handoffTitle').textContent=title;$('handoffText').textContent=text;renderLocal()}
 function createLocalState(mode,count,difficulty,round=1){
   const firstSeat=mode==='same'?(round-1)%2:0;
-  return {mode,count,difficulty,round,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],firstSeat,turn:firstSeat,winner:null,finalChance:false,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1};
+  return {mode,count,difficulty,round,phase:'placing',placingSeat:0,players:[{planes:[]},{planes:mode==='ai'?randomPlanes(count):[]}],shots:[],firstSeat,turn:firstSeat,winner:null,finalChance:false,awaitingPass:false,handoffNext:null,busy:false,guesses:[[],[]],guessMode:false,draftPlane:null,draftIndex:-1,guessDraftPlane:null,guessDraftIndex:-1,seenKillKeys:new Set()};
 }
 function startLocal(){
   const mode=activeMode==='same'?'same':'ai',count=Number($('localCount').value),difficulty=mode==='ai'?$('aiDifficulty').value:null;
@@ -481,6 +501,7 @@ function renderLocal(){
     positionGuessDock('localBoard','localGuess',local);
     grid('localOwnBoard',(el,n)=>{paintOwnDamage(el,n,local.players[viewer].planes,incoming);el.disabled=true});
     renderPlaneOutlines('localOwnBoard',local.players[viewer].planes,{destroyed:destroyedPlaneIds(incoming)});
+    renderLocalExplosions(viewer,outgoing,incoming);
   }
   const one=local.shots.filter(s=>s.by===0),two=local.shots.filter(s=>s.by===1);
   $('localHistoryOneTitle').textContent='玩家1攻击记录';$('localHistoryTwoTitle').textContent=`${ai?'电脑':'玩家2'}攻击记录`;
